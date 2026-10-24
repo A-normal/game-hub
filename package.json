@@ -1,0 +1,15 @@
+{
+  "name": "game-hub-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Game-Hub: Pluggable Multi-Community Game Bus with Standalone NapCat Gateway",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/vault.test.mjs && node tests/mihoyo-client.test.mjs && node tests/vertical-slice-e2e.test.mjs",
+    "lint": "eslint packages/*/src"
+  },
+  "packageManager": "pnpm@12.5.1",
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

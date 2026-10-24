@@ -1,0 +1,10 @@
+{
+  "name": "@game-hub/provider-mihoyo",
+  "version": "1.0.0",
+  "description": "Mihoyo Community Provider for Game-Hub: DS1/DS2 Signers & Takumi Gateway Client",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "dependencies": {
+    "@game-hub/core": "workspace:*"
+  }
+}

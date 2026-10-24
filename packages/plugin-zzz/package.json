@@ -1,0 +1,11 @@
+{
+  "name": "@game-hub/plugin-zzz",
+  "version": "1.0.0",
+  "description": "Zenless Zone Zero Pure Command Plugin for Game-Hub",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "dependencies": {
+    "@game-hub/core": "workspace:*",
+    "@game-hub/provider-mihoyo": "workspace:*"
+  }
+}

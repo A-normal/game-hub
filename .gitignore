@@ -1,0 +1,5 @@
+node_modules/
+.pnpm-store/
+data/
+*.log
+tests/_tmp_*
