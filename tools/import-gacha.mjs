@@ -60,14 +60,39 @@ export function importGachaJson(filePath, dbOrPath = "./data/vault.db") {
     defaultUid = parsed[0]?.uid ? String(parsed[0].uid) : "";
   } else if (parsed && typeof parsed === "object") {
     defaultUid = parsed.info?.uid ? String(parsed.info.uid) : "";
-    rawList = parsed.list || parsed.data || [];
+    if (Array.isArray(parsed.list)) {
+      rawList = parsed.list;
+    } else if (Array.isArray(parsed.data)) {
+      rawList = parsed.data;
+    } else {
+      // 兼容绝区零插件原生多频段卡池结构：{ "独家频段": [...], "音擎频段": [...], ... }
+      for (const val of Object.values(parsed)) {
+        if (Array.isArray(val)) {
+          for (const item of val) {
+            rawList.push(item);
+            if (!defaultUid && item?.uid) {
+              defaultUid = String(item.uid);
+            }
+          }
+        }
+      }
+    }
   }
 
   if (!Array.isArray(rawList) || rawList.length === 0) {
     throw new Error("抽卡记录文件中未包含有效的抽卡记录条目 (list 为空)");
   }
 
-  const db = typeof dbOrPath === "string" ? new DatabaseSync(dbOrPath) : dbOrPath;
+  let db;
+  if (typeof dbOrPath === "string") {
+    const dir = path.dirname(dbOrPath);
+    if (dir && !fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    db = new DatabaseSync(dbOrPath);
+  } else {
+    db = dbOrPath;
+  }
   ensureGachaTable(db);
 
   const stmt = db.prepare(`
