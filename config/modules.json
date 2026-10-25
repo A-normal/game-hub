@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "modules": [
+    { "kind": "provider", "id": "mihoyo", "entry": "packages/provider/mihoyo/src/index.mjs" },
+    {
+      "kind": "plugin", "id": "zzz", "entry": "packages/plugin/zzz/src/index.mjs",
+      "namespace": { "prefix": "*", "aliases": ["zzz", "绝区零"], "priority": 100 },
+      "shortcuts":[
+        {"text":"/更新面板","routeId":"panelRefresh"},
+        {"text":"／更新面板","routeId":"panelRefresh"},
+        {"text":"更新面板","routeId":"panelRefresh"},
+        {"text":"/便签","routeId":"note"},
+        {"text":"／便签","routeId":"note"},
+        {"text":"便签","routeId":"note"},
+        {"text":"/更新抽卡","routeId":"gachaUpdate"},
+        {"text":"／更新抽卡","routeId":"gachaUpdate"},
+        {"text":"更新抽卡","routeId":"gachaUpdate"},
+        {"text":"/签到","routeId":"sign"},
+        {"text":"／签到","routeId":"sign"}
+      ]
+    },
+    {
+      "kind": "channel", "id": "napcat", "entry": "packages/channel/napcat/src/index.mjs",
+      "config": {
+        "host": { "$env": "GAMEHUB_HOST", "default": "127.0.0.1" },
+        "port": { "$env": "GAMEHUB_PORT", "default": 8080, "as":"number" },
+        "path": { "$env": "GAMEHUB_PATH", "default": "/onebot/v11/ws" },
+        "accessToken": { "$env": "GAMEHUB_TOKEN", "required": true }
+      }
+    }
+  ]
+}

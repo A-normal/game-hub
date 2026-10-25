@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { IdentityVault } from "../packages/core/src/identity/vault.mjs";
-import { importGachaJson, ensureGachaTable } from "../tools/import-gacha.mjs";
+import { importGachaJson } from "../tools/import-gacha.mjs";
 
 test("Identity Vault & Data Integrity Test Suite", async (t) => {
   // =========================================================================
@@ -102,17 +102,18 @@ test("Identity Vault & Data Integrity Test Suite", async (t) => {
   // =========================================================================
   await t.test("Gacha Manual Import Tool: Safe idempotent UIGF import", () => {
     const vault = new IdentityVault(":memory:");
-    ensureGachaTable(vault.db);
+    const binding={owner:"mock:import",uid:"17708598"};
+    vault.saveAccountBinding({unifiedUserId:binding.owner,platform:"mock",originalId:"import",providerId:"mihoyo",accountKey:"account",gameId:"zzz",cookies:{ck:"fixture"},roles:[{uid:binding.uid,region:"prod_gf_cn",nickname:"import"}]});
 
     // 构造临时测试抽卡 JSON 文件
     const tmpFile = "./tests/_tmp_gacha_test.json";
     const mockGachaData = {
       info: { uid: "17708598", lang: "zh-cn" },
       list: [
-        { id: "g1001", uid: "17708598", gacha_type: "2", item_type: "代理人", name: "艾莲", rank_type: 4, time: "2024-07-04 12:00:00" },
-        { id: "g1002", uid: "17708598", gacha_type: "2", item_type: "音擎", name: "深海访客", rank_type: 4, time: "2024-07-04 12:01:00" },
-        { id: "g1003", uid: "17708598", gacha_type: "2", item_type: "代理人", name: "苍角", rank_type: 3, time: "2024-07-04 12:02:00" },
-        { id: "g1004", uid: "17708598", gacha_type: "2", item_type: "音擎", name: "残响-一型", rank_type: 2, time: "2024-07-04 12:03:00" }
+        { id: "1001", uid: "17708598", gacha_type: "2001", item_type: "代理人", name: "艾莲", rank_type: 4, time: "2024-07-04 12:00:00" },
+        { id: "1002", uid: "17708598", gacha_type: "3001", item_type: "音擎", name: "深海访客", rank_type: 4, time: "2024-07-04 12:01:00" },
+        { id: "1003", uid: "17708598", gacha_type: "2001", item_type: "代理人", name: "苍角", rank_type: 3, time: "2024-07-04 12:02:00" },
+        { id: "1004", uid: "17708598", gacha_type: "2001", item_type: "音擎", name: "残响-一型", rank_type: 2, time: "2024-07-04 12:03:00" }
       ]
     };
 
@@ -120,19 +121,20 @@ test("Identity Vault & Data Integrity Test Suite", async (t) => {
 
     try {
       // 首次导入
-      const stats1 = importGachaJson(tmpFile, vault.db);
-      assert.equal(stats1.insertedOrUpdated, 4);
+      const stats1 = importGachaJson(tmpFile, vault,binding);
+      assert.equal(stats1.added, 4);
       assert.equal(stats1.sRanks, 2);
       assert.equal(stats1.aRanks, 1);
 
-      const totalRows1 = vault.db.prepare("SELECT count(*) as c FROM gacha_records").get();
+      const totalRows1 = vault.db.prepare("SELECT count(*) as c FROM zzz_gacha").get();
       assert.equal(totalRows1.c, 4);
 
       // 再次重跑导入（验证幂等性，不产生重复主键也不报错）
-      const stats2 = importGachaJson(tmpFile, vault.db);
-      assert.equal(stats2.insertedOrUpdated, 4);
+      const stats2 = importGachaJson(tmpFile, vault,binding);
+      assert.equal(stats2.added, 0);
+      assert.throws(()=>importGachaJson(tmpFile,vault,{owner:"other:import",uid:binding.uid}),/绑定/);
 
-      const totalRows2 = vault.db.prepare("SELECT count(*) as c FROM gacha_records").get();
+      const totalRows2 = vault.db.prepare("SELECT count(*) as c FROM zzz_gacha").get();
       assert.equal(totalRows2.c, 4, "Total rows must remain 4 after re-importing identical records");
     } finally {
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);

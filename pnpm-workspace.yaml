@@ -1,2 +1,5 @@
 packages:
-  - "packages/*"
+  - "packages/core"
+  - "packages/channel/*"
+  - "packages/provider/*"
+  - "packages/plugin/*"

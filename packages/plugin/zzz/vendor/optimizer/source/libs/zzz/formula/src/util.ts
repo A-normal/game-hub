@@ -1,0 +1,336 @@
+import type { Preset, Read } from '@genshin-optimizer/game-opt/engine'
+import { cmpEq, cmpNE } from '@genshin-optimizer/pando/engine'
+import {
+  type CharacterKey,
+  type DiscMainStatKey,
+  type DiscSetKey,
+  type DiscSubStatKey,
+  getDiscMainStatVal,
+  getDiscSubStatBaseVal,
+  type MilestoneKey,
+  type PhaseKey,
+  type WengineKey,
+} from '@genshin-optimizer/zzz/consts'
+import type { IDisc } from '@genshin-optimizer/zzz/zood'
+import type { Calculator } from './calculator'
+import type { Member, Tag, TagMapNodeEntries } from './data/util'
+import {
+  convert,
+  enemyTag,
+  getStatFromStatKey,
+  own,
+  ownBuff,
+  ownTag,
+  reader,
+  teamBuff,
+} from './data/util'
+
+export function withPreset(
+  preset: Preset,
+  ...data: TagMapNodeEntries
+): TagMapNodeEntries {
+  return data.map(({ tag, value }) => ({ tag: { ...tag, preset }, value }))
+}
+export function withMember(
+  src: Member,
+  ...data: TagMapNodeEntries
+): TagMapNodeEntries {
+  return data.map(({ tag, value }) => ({ tag: { ...tag, src }, value }))
+}
+
+type TempICharacter = {
+  key: CharacterKey
+  level: number
+  promotion: number
+  basic: number
+  dodge: number
+  special: number
+  chain: number
+  assist: number
+  core: number
+  mindscape: number
+  potential: number
+}
+export function charTagMapNodeEntries(data: TempICharacter): TagMapNodeEntries {
+  const {
+    key,
+    lvl,
+    promotion,
+    basic,
+    dodge,
+    special,
+    chain,
+    assist,
+    core,
+    mindscape,
+    potential,
+  } = own.char
+  const { char, iso, [data.key]: sheet } = reader.withAll('sheet', [])
+
+  return [
+    char.reread(sheet),
+    iso.reread(sheet),
+
+    key.add(data.key),
+    lvl.add(data.level),
+    basic.add(data.basic),
+    dodge.add(data.dodge),
+    special.add(data.special),
+    chain.add(data.chain),
+    assist.add(data.assist),
+    core.add(data.core),
+    promotion.add(data.promotion),
+    mindscape.add(data.mindscape),
+    potential.add(data.potential),
+
+    // Default char
+    ownBuff.base.crit_.add(0.05),
+    ownBuff.base.crit_dmg_.add(0.5),
+    ownBuff.base.laceration_dmg_.add(1.5),
+  ]
+}
+
+export function wengineTagMapNodeEntries(
+  wengInfo:
+    | {
+        key: WengineKey
+        level: number
+        modification: MilestoneKey
+        phase: PhaseKey
+      }
+    | undefined
+): TagMapNodeEntries {
+  return [
+    // Opt-in for wengine buffs, instead of enabling it by default to reduce `read` traffic
+    reader.sheet('agg').reread(reader.sheet('wengine')),
+    // Mark wengine cones as used
+    ...(wengInfo
+      ? [
+          own.common.count.sheet(wengInfo.key).add(1),
+          own.wengine.lvl.add(wengInfo.level),
+          own.wengine.modification.add(wengInfo.modification),
+          own.wengine.phase.add(wengInfo.phase),
+        ]
+      : []),
+  ]
+}
+
+export function discTagMapNodeEntries(
+  stats: Partial<Record<DiscMainStatKey | DiscSubStatKey, number>>,
+  sets: Partial<Record<DiscSetKey, number>>
+): TagMapNodeEntries {
+  const {
+    common: { count },
+    initial,
+  } = convert(ownTag, { sheet: 'disc', et: 'own' })
+  return [
+    // Opt-in for disc buffs, instead of enabling it by default to reduce `read` traffic
+    reader.sheet('agg').reread(reader.sheet('disc')),
+
+    // Add `sheet:dyn` between the stat and the buff so that we can `detach` them easily
+    // Used for disc main/sub stats, as those are fed into the builder at run-time, after nodes are optimized
+    reader
+      .withTag({ sheet: 'disc', qt: 'initial' })
+      .reread(reader.sheet('dyn')),
+    ...Object.entries(stats).map(([k, v]) =>
+      getStatFromStatKey(initial, k).sheet('dyn').add(v)
+    ),
+
+    ...Object.entries(sets).map(([k, v]) =>
+      count.sheet(k as DiscSetKey).add(v)
+    ),
+  ]
+}
+
+export function discsToTagMapNodeEntries(discs: IDisc[]): TagMapNodeEntries {
+  const sets: Partial<Record<DiscSetKey, number>> = {},
+    stats: Partial<Record<DiscMainStatKey | DiscSubStatKey, number>> = {}
+  discs.forEach(({ setKey, mainStatKey, substats, level, rarity }) => {
+    sets[setKey] = (sets[setKey] ?? 0) + 1
+    stats[mainStatKey] =
+      (stats[mainStatKey] ?? 0) + getDiscMainStatVal(rarity, mainStatKey, level)
+    substats.forEach(({ key, upgrades }) => {
+      if (!key || !upgrades) return
+      stats[key] =
+        (stats[key] ?? 0) + getDiscSubStatBaseVal(key, rarity) * upgrades
+    })
+  })
+  return discTagMapNodeEntries(stats, sets)
+}
+
+export function teamData(members: readonly Member[]): TagMapNodeEntries {
+  const teamEntry = reader.with('et', 'team')
+  const { own, enemy, teamBuff, notOwnBuff } = reader
+    .sheet('agg')
+    .withAll('et', [])
+  return [
+    // memberx and prev/nextMember
+    members.flatMap((dst, i) => {
+      const arr = [
+        reader
+          .withTag({ et: 'member0', dst })
+          .reread(reader.withTag({ et: 'own', dst: null, src: members[0] })),
+        reader.withTag({ et: 'member1', dst }).reread(
+          reader.withTag({
+            et: 'own',
+            dst: null,
+            src: members.length > 1 ? members[1] : members[0],
+          })
+        ),
+        reader.withTag({ et: 'member2', dst }).reread(
+          reader.withTag({
+            et: 'own',
+            dst: null,
+            src: members.length > 2 ? members[2] : members[0],
+          })
+        ),
+        reader
+          .withTag({ et: 'prevMember', dst })
+          .reread(
+            reader.withTag({ et: 'own', dst: null, src: members.at(i - 1) })
+          ),
+        reader.withTag({ et: 'nextMember', dst }).reread(
+          reader.withTag({
+            et: 'own',
+            dst: null,
+            src: members.at((i + 1) % members.length),
+          })
+        ),
+      ]
+      return arr
+    }),
+    // Target Entries
+    members.map((dst) =>
+      reader
+        .withTag({ et: 'target', dst })
+        .reread(reader.withTag({ et: 'own', dst: null, src: dst }))
+    ),
+    // Team Buff
+    members.flatMap((dst) => {
+      const entry = own.with('src', dst)
+      return members.map((src) =>
+        entry.reread(teamBuff.withTag({ dst, src, name: null }))
+      )
+    }),
+    // Not Self Buff
+    members.flatMap((dst) => {
+      const entry = own.with('src', dst)
+      return members
+        .filter((src) => src !== dst)
+        .map((src) =>
+          entry.reread(notOwnBuff.withTag({ dst, src, name: null }))
+        )
+    }),
+    // Enemy Debuff
+    members.map((src) =>
+      enemy.reread(
+        reader.withTag({ et: 'enemyDeBuff', dst: null, src, name: null })
+      )
+    ),
+    // Non-stacking
+    members.flatMap((src, i) => {
+      const { stackIn, stackTmp } = reader.withAll('qt', [])
+      // Make sure not to use `sheet:agg` here to match `stackOut` on the `reader.addOnce` side
+      const own = reader.withTag({ src, et: 'own' })
+      // Use `i + 1` for priority so that `0` means no buff
+      return [
+        own.with('qt', 'stackTmp').add(cmpNE(stackIn, 0, i + 1)),
+        own
+          .with('qt', 'stackOut')
+          .add(cmpEq(stackTmp.max.withTag({ et: 'team' }), i + 1, stackIn)),
+      ]
+    }),
+
+    // Total Team Stat
+    members.map((src) => teamEntry.add(reader.withTag({ src, et: 'own' }))),
+  ].flat()
+}
+
+// Enemy stats on `ownBuff.listing` that still debuff the main unit's targets.
+const ENEMY_DEBUFF_QS: ReadonlySet<string> = new Set(
+  Object.keys(enemyTag.common)
+)
+
+/** Match listing reads and sheet fields by sheet + register name. */
+export function teamBuffListingKey(tag: Tag): string | null {
+  const { sheet, name } = tag
+  return sheet && name ? `${sheet}:${name}` : null
+}
+
+export function isMindscapeGatedBuff(
+  buffName: string | null | undefined,
+  mindscape: number
+): boolean {
+  const match = buffName?.match(/^m(\d)_/)
+  return !!match && Number.parseInt(match[1], 10) > mindscape
+}
+
+function isEnemyDebuffListingRead(read: Read<Tag>): boolean {
+  const q = read.tag.q
+  return read.tag.qt === 'common' && !!q && ENEMY_DEBUFF_QS.has(q)
+}
+
+function uniqReadsByListingKey(reads: Read<Tag>[]): Read<Tag>[] {
+  const seen = new Set<string>()
+  return reads.filter((read) => {
+    const key = teamBuffListingKey(read.tag)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/**
+ * Team-buff (and whitelisted enemy-debuff) listing reads for one teammate `src`.
+ * Used by teammate buff UI discovery on the optimize page.
+ */
+export function listTeammateTeamBuffReads(
+  calc: Calculator | null | undefined,
+  teammateKey: CharacterKey,
+  mindscape: number
+): Read<Tag>[] {
+  if (!calc) return []
+
+  const reads = [
+    ...calc.listFormulas(teamBuff.listing.buffs),
+    ...calc
+      .listFormulas(ownBuff.listing.buffs)
+      .filter(isEnemyDebuffListingRead),
+  ]
+
+  return uniqReadsByListingKey(
+    reads.filter(
+      (read) =>
+        read.tag.src === teammateKey &&
+        // Global anomaly team buffs (e.g. Frostbite) use AnomalySection on this page.
+        read.tag.sheet !== 'anomaly' &&
+        !isMindscapeGatedBuff(read.tag.name, mindscape)
+    )
+  )
+}
+
+/** Conditional keys (`sheet:name`) that gate the given listing reads. */
+export function conditionalKeysFromReads(
+  calc: Calculator,
+  reads: Read<Tag>[],
+  // Multiopt frame; optimize is single-target today so callers use preset0.
+  preset: Preset = 'preset0'
+): Set<string> {
+  return new Set(
+    reads.flatMap((read) => {
+      const conds = calc.compute(read.with('preset', preset)).meta.conds as
+        | Record<
+            string,
+            Record<string, Record<string, Record<string, unknown>>>
+          >
+        | undefined
+      return Object.values(conds ?? {}).flatMap((dst) =>
+        Object.values(dst ?? {}).flatMap((src) =>
+          Object.entries(src ?? {}).flatMap(([sheet, names]) =>
+            Object.keys(names ?? {}).map((name) => `${sheet}:${name}`)
+          )
+        )
+      )
+    })
+  )
+}

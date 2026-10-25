@@ -1,0 +1,17 @@
+{
+  "httpServers": [],
+  "httpClients": [],
+  "websocketServers": [],
+  "websocketClients": [
+    {
+      "enable": true,
+      "name": "GameHub-ReverseWS",
+      "url": "ws://gamehub:8080/onebot/v11/ws",
+      "reportSelfMessage": false,
+      "messagePostFormat": "array",
+      "reconnectInterval": 3000,
+      "heartbeatInterval": 5000,
+      "token": "gamehub_secret_token_2026"
+    }
+  ]
+}

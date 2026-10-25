@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MihoyoTakumiClient } from "../packages/provider-mihoyo/src/client.mjs";
-import { getDs1, getDs2, SALTS } from "../packages/provider-mihoyo/src/signer.mjs";
+import { MihoyoTakumiClient } from "../packages/provider/mihoyo/src/client.mjs";
+import { getDs1, getDs2, SALTS } from "../packages/provider/mihoyo/src/signer.mjs";
 
 test("Mihoyo Provider & Takumi Client Rigorous Verification Suite (Resolving P1-03)", async (t) => {
   // 保存原生 fetch 引用
@@ -66,7 +66,7 @@ test("Mihoyo Provider & Takumi Client Rigorous Verification Suite (Resolving P1-
       );
 
       // 核心断言 2：设备指纹与客户端版本头必须完整装配 (解决 P1-03)
-      assert.equal(capturedOptions.headers["x-rpc-app_version"], "2.71.1");
+      assert.equal(capturedOptions.headers["x-rpc-app_version"], "2.73.1");
       assert.equal(capturedOptions.headers["x-rpc-client_type"], "5");
       assert.equal(capturedOptions.headers["x-rpc-device_id"], "test-device-uuid-999");
       assert.equal(capturedOptions.headers["x-rpc-device_fp"], "38d7f8a9b0c1");
@@ -139,7 +139,7 @@ test("Mihoyo Provider & Takumi Client Rigorous Verification Suite (Resolving P1-
       });
 
       assert.ok(
-        capturedUrl.startsWith("https://bbs-api-os.hoyolab.com"),
+        capturedUrl.startsWith("https://sg-act-public-api.hoyolab.com"),
         `Captured URL [${capturedUrl}] must route to bbs-api-os.hoyolab.com for overseas servers`
       );
     } finally {

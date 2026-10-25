@@ -12,6 +12,7 @@ export class IdentityVault {
    */
   constructor(dbPath = ":memory:") {
     this.db = new DatabaseSync(dbPath);
+    this._transactionId = 0;
     // 强制开启外键完整性约束
     this.db.exec("PRAGMA foreign_keys = ON;");
     this._initTables();
@@ -63,6 +64,28 @@ export class IdentityVault {
           FOREIGN KEY (provider_id, account_key) REFERENCES community_credentials(provider_id, account_key) ON DELETE CASCADE
       );
 
+      -- 5. 系统与插件配置持久化表 (解决总线指令式动态改名与启停)
+      CREATE TABLE IF NOT EXISTS system_settings (
+          setting_key   TEXT PRIMARY KEY,
+          setting_value TEXT NOT NULL,
+          updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS user_active_roles (
+        unified_user_id TEXT NOT NULL REFERENCES chat_users(unified_user_id) ON DELETE CASCADE,
+        game_id TEXT NOT NULL,
+        uid TEXT NOT NULL,
+        PRIMARY KEY (unified_user_id, game_id),
+        FOREIGN KEY (game_id, uid) REFERENCES game_roles(game_id, uid) ON DELETE CASCADE
+      );
+      INSERT OR IGNORE INTO user_active_roles (unified_user_id, game_id, uid)
+      SELECT unified_user_id, game_id, uid FROM (
+        SELECT b.unified_user_id, r.game_id, r.uid,
+          ROW_NUMBER() OVER (PARTITION BY b.unified_user_id, r.game_id ORDER BY r.is_active DESC, r.level DESC, r.uid) AS preference
+        FROM user_community_bindings b JOIN game_roles r
+          ON r.provider_id = b.provider_id AND r.account_key = b.account_key
+      ) WHERE preference = 1;
+
       -- 索引优化
       CREATE INDEX IF NOT EXISTS idx_game_roles_account ON game_roles(provider_id, account_key);
       CREATE INDEX IF NOT EXISTS idx_bindings_user ON user_community_bindings(unified_user_id);
@@ -73,7 +96,7 @@ export class IdentityVault {
    * 保存或更新通行证凭据 (使用 ON CONFLICT DO UPDATE，彻底杜绝 REPLACE 先删后插导致的 ON DELETE CASCADE 误删关系)
    */
   saveCredential(providerId, accountKey, cookies, deviceMeta = {}) {
-    const cookiesJson = typeof cookies === "string" ? cookies : JSON.stringify(cookies);
+    const cookiesJson = JSON.stringify(typeof cookies === "string" ? { ck: cookies } : cookies);
     const deviceJson = typeof deviceMeta === "string" ? deviceMeta : JSON.stringify(deviceMeta);
 
     const stmt = this.db.prepare(`
@@ -91,6 +114,9 @@ export class IdentityVault {
    * 确保聊天用户存在并绑定社区账号
    */
   bindUser(unifiedUserId, platform, originalId, providerId, accountKey) {
+    if (!unifiedUserId || !platform || originalId === undefined || originalId === null || String(originalId).trim() === "") {
+      throw new Error("聊天用户身份不完整，无法绑定账号");
+    }
     const userStmt = this.db.prepare(`
       INSERT INTO chat_users (unified_user_id, platform, original_id)
       VALUES (?, ?, ?)
@@ -104,6 +130,48 @@ export class IdentityVault {
       ON CONFLICT(unified_user_id, provider_id, account_key) DO NOTHING
     `);
     bindStmt.run(unifiedUserId, providerId, accountKey.toString());
+  }
+
+  /**
+   * 同步、可嵌套的事务边界，避免扫码绑定失败后只保存了部分数据。
+   */
+  _transaction(action) {
+    const name = `vault_tx_${++this._transactionId}`;
+    this.db.exec(`SAVEPOINT ${name};`);
+    try {
+      const result = action();
+      this.db.exec(`RELEASE SAVEPOINT ${name};`);
+      return result;
+    } catch (err) {
+      this.db.exec(`ROLLBACK TO SAVEPOINT ${name}; RELEASE SAVEPOINT ${name};`);
+      throw err;
+    }
+  }
+
+  /**
+   * 原子保存一次经过验证的登录结果。不根据残留凭据猜测聊天用户归属。
+   * @param {Object} binding
+   * @returns {import('../types.mjs').SelectedRole | null}
+   */
+  saveAccountBinding({ unifiedUserId, platform, originalId, providerId, accountKey, gameId, cookies, device = {}, roles = [], activeUid }) {
+    if (!providerId || !accountKey || !gameId || !Array.isArray(roles)) {
+      throw new Error("账号绑定数据不完整");
+    }
+    return this._transaction(() => {
+      this.saveCredential(providerId, accountKey, cookies, device);
+      this.bindUser(unifiedUserId, platform, originalId, providerId, accountKey);
+      for (const role of roles) {
+        const owner = this.db.prepare("SELECT provider_id, account_key FROM game_roles WHERE game_id = ? AND uid = ?").get(gameId, String(role.uid));
+        if (owner && (owner.provider_id !== providerId || owner.account_key !== String(accountKey))) {
+          throw new Error("游戏角色归属与当前通行证不一致");
+        }
+      }
+      this.saveRoles(providerId, accountKey, gameId, roles);
+      if (activeUid && !this.setActiveRole(unifiedUserId, gameId, activeUid)) {
+        throw new Error("无法激活本次登录的游戏角色");
+      }
+      return this.getActiveRole(unifiedUserId, gameId);
+    });
   }
 
   /**
@@ -151,6 +219,27 @@ export class IdentityVault {
       `);
       activateStmt.run(gameId, roles[0].uid.toString());
     }
+    this.db.prepare(`
+      INSERT OR IGNORE INTO user_active_roles (unified_user_id, game_id, uid)
+      SELECT unified_user_id, ?, ? FROM user_community_bindings
+      WHERE provider_id = ? AND account_key = ?
+    `).run(gameId, String(roles[0].uid), providerId, String(accountKey));
+  }
+
+  /**
+   * 保存单个游戏角色
+   */
+  saveGameRole(providerId, accountKey, gameId, uid, region, nickname, level = 0, isActive = 0) {
+    this.saveRoles(providerId, accountKey, gameId, [{
+      uid: String(uid),
+      region: region || "prod_gf_cn",
+      nickname: nickname || "绳匠",
+      level: Number(level || 0)
+    }]);
+
+    if (isActive) {
+      this.db.prepare("UPDATE game_roles SET is_active = 1 WHERE game_id = ? AND uid = ?").run(gameId, String(uid));
+    }
   }
 
   /**
@@ -175,8 +264,11 @@ export class IdentityVault {
     }
 
     // 2. 事务更新：取消此用户在当前游戏下的所有激活角色，再将指定角色激活
-    this.db.exec("BEGIN TRANSACTION;");
-    try {
+    return this._transaction(() => {
+      this.db.prepare(`
+        INSERT INTO user_active_roles (unified_user_id, game_id, uid) VALUES (?, ?, ?)
+        ON CONFLICT(unified_user_id, game_id) DO UPDATE SET uid = excluded.uid
+      `).run(unifiedUserId, gameId, String(targetUid));
       this.db.prepare(`
         UPDATE game_roles 
         SET is_active = 0, updated_at = CURRENT_TIMESTAMP
@@ -191,12 +283,8 @@ export class IdentityVault {
         WHERE game_id = ? AND uid = ?
       `).run(gameId, targetUid.toString());
 
-      this.db.exec("COMMIT;");
       return true;
-    } catch (err) {
-      this.db.exec("ROLLBACK;");
-      throw err;
-    }
+    });
   }
 
   /**
@@ -214,7 +302,8 @@ export class IdentityVault {
       FROM user_community_bindings b
       JOIN game_roles r ON b.provider_id = r.provider_id AND b.account_key = r.account_key
       JOIN community_credentials c ON b.provider_id = c.provider_id AND b.account_key = c.account_key
-      WHERE b.unified_user_id = ? AND r.game_id = ? AND r.is_active = 1
+      JOIN user_active_roles a ON a.unified_user_id = b.unified_user_id AND a.game_id = r.game_id AND a.uid = r.uid
+      WHERE b.unified_user_id = ? AND r.game_id = ?
       LIMIT 1
     `);
     const row = stmt.get(unifiedUserId, gameId);
@@ -222,7 +311,13 @@ export class IdentityVault {
 
     let cookies = {};
     let device = {};
-    try { cookies = JSON.parse(row.cookies_json); } catch {}
+    try {
+      const parsed = JSON.parse(row.cookies_json);
+      cookies = typeof parsed === "string" ? { ck: parsed } : (parsed || {});
+    } catch {
+      // 兼容旧扫码代码写入的裸 Cookie；只在读取时适配，不批量改写已有数据。
+      if (row.cookies_json.includes("=")) cookies = { ck: row.cookies_json };
+    }
     try { device = JSON.parse(row.device_meta); } catch {}
 
     return {
@@ -244,14 +339,93 @@ export class IdentityVault {
   getUserRoles(unifiedUserId, gameId) {
     const stmt = this.db.prepare(`
       SELECT 
-        r.uid, r.region, r.nickname, r.level, r.is_active,
+        r.uid, r.region, r.nickname, r.level, CASE WHEN a.uid = r.uid THEN 1 ELSE 0 END AS is_active,
         r.provider_id, r.account_key
       FROM user_community_bindings b
       JOIN game_roles r ON b.provider_id = r.provider_id AND b.account_key = r.account_key
+      LEFT JOIN user_active_roles a ON a.unified_user_id = b.unified_user_id AND a.game_id = r.game_id
       WHERE b.unified_user_id = ? AND r.game_id = ?
       ORDER BY r.is_active DESC, r.level DESC
     `);
     return stmt.all(unifiedUserId, gameId);
+  }
+
+  unbindUser(userId, providerId, accountKey) {
+    return this._transaction(() => {
+      this.db.prepare("DELETE FROM user_community_bindings WHERE unified_user_id=? AND provider_id=? AND account_key=?").run(userId,providerId,String(accountKey));
+      this.db.prepare(`DELETE FROM user_active_roles WHERE unified_user_id=? AND NOT EXISTS (
+        SELECT 1 FROM game_roles r JOIN user_community_bindings b ON b.provider_id=r.provider_id AND b.account_key=r.account_key
+        WHERE b.unified_user_id=? AND r.game_id=user_active_roles.game_id AND r.uid=user_active_roles.uid
+      )`).run(userId,userId);
+      const games = this.db.prepare("SELECT DISTINCT game_id FROM game_roles").all();
+      for (const {game_id} of games) if (!this.getActiveRole(userId,game_id)) {
+        const next = this.getUserRoles(userId,game_id)[0]; if (next) this.setActiveRole(userId,game_id,next.uid);
+      }
+      this.db.prepare("DELETE FROM community_credentials WHERE provider_id=? AND account_key=? AND NOT EXISTS (SELECT 1 FROM user_community_bindings WHERE provider_id=? AND account_key=?)").run(providerId,String(accountKey),providerId,String(accountKey));
+    });
+  }
+
+  getUserCredential(userId, providerId, accountKey) {
+    const row=this.db.prepare(`SELECT c.cookies_json,c.device_meta FROM community_credentials c JOIN user_community_bindings b
+      ON c.provider_id=b.provider_id AND c.account_key=b.account_key WHERE b.unified_user_id=? AND c.provider_id=? AND c.account_key=?`).get(userId,providerId,String(accountKey));
+    if (!row) return null;
+    let cookies,device={};
+    try { cookies=JSON.parse(row.cookies_json); } catch { cookies={ck:row.cookies_json}; }
+    if (typeof cookies==="string") cookies={ck:cookies};
+    try {device=JSON.parse(row.device_meta);} catch {}
+    return {cookies,device};
+  }
+
+  /**
+   * 保存系统配置项
+   * @param {string} key
+   * @param {any} value
+   */
+  setSetting(key, value) {
+    const valStr = typeof value === "string" ? value : JSON.stringify(value);
+    const stmt = this.db.prepare(`
+      INSERT INTO system_settings (setting_key, setting_value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(setting_key) DO UPDATE SET
+        setting_value = excluded.setting_value,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    stmt.run(key, valStr);
+  }
+
+  /**
+   * 读取系统配置项
+   * @param {string} key
+   * @param {any} [defaultValue=null]
+   */
+  getSetting(key, defaultValue = null) {
+    const stmt = this.db.prepare("SELECT setting_value FROM system_settings WHERE setting_key = ?");
+    const row = stmt.get(key);
+    if (!row) return defaultValue;
+    try {
+      return JSON.parse(row.setting_value);
+    } catch {
+      return row.setting_value;
+    }
+  }
+
+  /**
+   * 获取所有以特定前缀开头的配置键值
+   * @param {string} [prefix=""]
+   * @returns {Record<string, any>}
+   */
+  getAllSettings(prefix = "") {
+    const stmt = this.db.prepare("SELECT setting_key, setting_value FROM system_settings WHERE setting_key LIKE ?");
+    const rows = stmt.all(`${prefix}%`);
+    const result = {};
+    for (const r of rows) {
+      try {
+        result[r.setting_key] = JSON.parse(r.setting_value);
+      } catch {
+        result[r.setting_key] = r.setting_value;
+      }
+    }
+    return result;
   }
 
   /**

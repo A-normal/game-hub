@@ -59,6 +59,7 @@ export class InboundShaper {
 
     return {
       eventId,
+      botId: rawEvent.self_id ? String(rawEvent.self_id) : undefined,
       messageId,
       platform,
       unifiedUserId,

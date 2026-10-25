@@ -5,11 +5,16 @@
   "description": "Game-Hub: Pluggable Multi-Community Game Bus with Standalone NapCat Gateway",
   "type": "module",
   "scripts": {
-    "test": "node tests/vault.test.mjs && node tests/mihoyo-client.test.mjs && node tests/vertical-slice-e2e.test.mjs",
-    "lint": "eslint packages/*/src"
+    "start": "node app.mjs",
+    "test": "node --test --test-timeout=30000 tests/*.test.mjs",
+    "lint": "eslint packages/**/src"
   },
   "packageManager": "pnpm@12.5.1",
   "dependencies": {
+    "qrcode": "^1.5.4",
     "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }

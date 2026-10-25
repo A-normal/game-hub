@@ -1,0 +1,10 @@
+.git
+.gitignore
+node_modules
+**/node_modules
+data/
+*.log
+tests/
+docx/
+*.md
+.pnpm-store

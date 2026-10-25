@@ -2,9 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { WebSocket } from "ws";
 import { IdentityVault, GameHubDispatcher } from "../packages/core/src/index.mjs";
-import { MihoyoCommunityProvider } from "../packages/provider-mihoyo/src/index.mjs";
-import { ZZZPluginManifest } from "../packages/plugin-zzz/src/index.mjs";
-import { NapCatGateway } from "../packages/gateway-napcat/src/index.mjs";
+import { MihoyoCommunityProvider } from "../packages/provider/mihoyo/src/index.mjs";
+import { ZZZPluginManifest } from "../packages/plugin/zzz/src/index.mjs";
+import { NapCatGateway } from "../packages/channel/napcat/src/index.mjs";
 
 test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查询便签 → 回复)", async (t) => {
   const originalFetch = globalThis.fetch;
@@ -52,7 +52,7 @@ test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查
     }
 
     // 1.2 绝区零实时便签查询接口
-    if (urlStr.includes("/game_record/app/zzz/api/note")) {
+    if (urlStr.includes("/event/game_record_zzz/api/zzz/note")) {
       const urlObj = new URL(urlStr);
       lastNoteQueryUid = urlObj.searchParams.get("role_id") || "";
       const isZhe = lastNoteQueryUid === "17708598";
