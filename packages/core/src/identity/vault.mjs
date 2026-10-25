@@ -5,17 +5,58 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
+import crypto from "node:crypto";
 
 export class IdentityVault {
   /**
    * @param {string} [dbPath=":memory:"] - 数据库存储路径或内存标记
    */
-  constructor(dbPath = ":memory:") {
-    this.db = new DatabaseSync(dbPath);
+  constructor(dbPath = ":memory:", { readOnly = false } = {}) {
+    this.db = new DatabaseSync(dbPath, { readOnly });
     this._transactionId = 0;
+    this._secretKey = null;
     // 强制开启外键完整性约束
     this.db.exec("PRAGMA foreign_keys = ON;");
-    this._initTables();
+    if (!readOnly) this._initTables();
+  }
+
+  _getSecretKey() {
+    if (!this._secretKey) {
+      const secret = process.env.VAULT_SECRET || "gamehub-identity-vault-salt-key-2026";
+      this._secretKey = crypto.createHash("sha256").update(secret).digest();
+    }
+    return this._secretKey;
+  }
+
+  _encryptCredential(plainText) {
+    if (!plainText) return plainText;
+    const key = this._getSecretKey();
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+    const encrypted = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return "enc:v1:" + Buffer.concat([iv, tag, encrypted]).toString("base64");
+  }
+
+  _decryptCredential(cipherText) {
+    if (!cipherText || typeof cipherText !== "string") return cipherText;
+    if (!cipherText.startsWith("enc:v1:")) return cipherText;
+    try {
+      const buf = Buffer.from(cipherText.slice(7), "base64");
+      if (buf.length < 28) throw new Error("Invalid encrypted envelope");
+      const iv = buf.subarray(0, 12);
+      const tag = buf.subarray(12, 28);
+      const data = buf.subarray(28);
+      const key = this._getSecretKey();
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(tag);
+      return decipher.update(data, undefined, "utf8") + decipher.final("utf8");
+    } catch {
+      throw Object.assign(new Error("Credential decryption failed"), {
+        code: "VAULT_DECRYPT",
+        publicMessage: "账号凭据解密失败，请管理员核对 VAULT_SECRET 与数据库备份；本次未发送社区请求。"
+      });
+    }
   }
 
   _initTables() {
@@ -96,8 +137,9 @@ export class IdentityVault {
    * 保存或更新通行证凭据 (使用 ON CONFLICT DO UPDATE，彻底杜绝 REPLACE 先删后插导致的 ON DELETE CASCADE 误删关系)
    */
   saveCredential(providerId, accountKey, cookies, deviceMeta = {}) {
-    const cookiesJson = JSON.stringify(typeof cookies === "string" ? { ck: cookies } : cookies);
-    const deviceJson = typeof deviceMeta === "string" ? deviceMeta : JSON.stringify(deviceMeta);
+    const rawCookiesJson = JSON.stringify(typeof cookies === "string" ? { ck: cookies } : cookies);
+    const cookiesJson = this._encryptCredential(rawCookiesJson);
+    const deviceJson = this._encryptCredential(typeof deviceMeta === "string" ? deviceMeta : JSON.stringify(deviceMeta));
 
     const stmt = this.db.prepare(`
       INSERT INTO community_credentials (provider_id, account_key, cookies_json, device_meta, updated_at)
@@ -311,14 +353,16 @@ export class IdentityVault {
 
     let cookies = {};
     let device = {};
+    const decryptedJson = this._decryptCredential(row.cookies_json);
     try {
-      const parsed = JSON.parse(row.cookies_json);
+      const parsed = JSON.parse(decryptedJson);
       cookies = typeof parsed === "string" ? { ck: parsed } : (parsed || {});
     } catch {
       // 兼容旧扫码代码写入的裸 Cookie；只在读取时适配，不批量改写已有数据。
-      if (row.cookies_json.includes("=")) cookies = { ck: row.cookies_json };
+      if (decryptedJson && decryptedJson.includes("=")) cookies = { ck: decryptedJson };
     }
-    try { device = JSON.parse(row.device_meta); } catch {}
+    const decryptedDevice = this._decryptCredential(row.device_meta);
+    try { device = JSON.parse(decryptedDevice); } catch {}
 
     return {
       uid: row.uid,
@@ -345,7 +389,7 @@ export class IdentityVault {
       JOIN game_roles r ON b.provider_id = r.provider_id AND b.account_key = r.account_key
       LEFT JOIN user_active_roles a ON a.unified_user_id = b.unified_user_id AND a.game_id = r.game_id
       WHERE b.unified_user_id = ? AND r.game_id = ?
-      ORDER BY r.is_active DESC, r.level DESC
+      ORDER BY (CASE WHEN a.uid = r.uid THEN 1 ELSE 0 END) DESC, r.level DESC, r.uid ASC
     `);
     return stmt.all(unifiedUserId, gameId);
   }
@@ -370,9 +414,11 @@ export class IdentityVault {
       ON c.provider_id=b.provider_id AND c.account_key=b.account_key WHERE b.unified_user_id=? AND c.provider_id=? AND c.account_key=?`).get(userId,providerId,String(accountKey));
     if (!row) return null;
     let cookies,device={};
-    try { cookies=JSON.parse(row.cookies_json); } catch { cookies={ck:row.cookies_json}; }
+    const decryptedJson = this._decryptCredential(row.cookies_json);
+    try { cookies=JSON.parse(decryptedJson); } catch { cookies={ck:decryptedJson}; }
     if (typeof cookies==="string") cookies={ck:cookies};
-    try {device=JSON.parse(row.device_meta);} catch {}
+    const decryptedDevice=this._decryptCredential(row.device_meta);
+    try {device=JSON.parse(decryptedDevice);} catch {}
     return {cookies,device};
   }
 

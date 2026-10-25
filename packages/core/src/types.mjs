@@ -14,6 +14,8 @@
  * @property {boolean} [commandHint]
  * @property {number} timestamp
  * @property {{id:string,name?:string,role?:string}} sender
+ * @property {Array<{url?:string,file?:string}>} [images]
+ * @property {{id:string,text?:string,images?:Array<{url?:string,file?:string}>}} [replyMessage]
  * @property {(content:string|Object,options?:Object)=>Promise<IDeliveryResult>} reply
  */
 /**
@@ -30,7 +32,7 @@
 /**
  * @typedef {{pluginId?:string,routeId:string,args?:Array<string|number>}} CommandSpec
  * @typedef {{id:string,capabilities?:string[],optional?:boolean}} ProviderDependency
- * @typedef {{prefix:string,aliases:string[],priority?:number,requireAlias?:boolean}} Namespace
+ * @typedef {{prefix:string,aliases:string[],priority?:number}} Namespace 前缀与别名等价，各自都是独立的调用标记
  * @typedef {{status:'NOT_MATCHED'|'HANDLED'|'FAILED'|'DENIED'}} RouteResult
  * @typedef {Object} IGameContext
  * @property {IEventEnvelope} event
@@ -39,6 +41,7 @@
  * @property {string} routeId
  * @property {string} matchedToken
  * @property {string[]} args
+ * @property {string} argumentText Original argument text with internal whitespace preserved.
  * @property {SelectedRole|null} activeRole Lazily resolved only for game plugins.
  * @property {Object} client Lazily created from the caller's binding.
  * @property {Object} provider

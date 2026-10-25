@@ -169,8 +169,8 @@ test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查
 
       const bindReply = receivedMessages[1];
       assert.ok(bindReply.includes("通行证绑定成功"), "Reply must confirm bind success");
-      assert.ok(bindReply.includes("[17708598] 哲 (Lv.60) ★[当前主角色]"), "Must activate first role 17708598 by default");
-      assert.ok(bindReply.includes("[10009999] 铃 (Lv.25)"), "Must list second role");
+      assert.ok(bindReply.includes("哲 [17708598] Lv.60 ★ 当前主角色"), "Must activate first role 17708598 by default");
+      assert.ok(bindReply.includes("铃 [10009999] Lv.25"), "Must list second role");
 
       // 验证身份保密库中存在唯一的激活角色
       const activeRoleB = vault.getActiveRole(`qq-napcat:${TEST_QQ_USER}`, "zzz");
@@ -194,8 +194,8 @@ test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查
 
       const noteReply1 = receivedMessages[2];
       assert.equal(lastNoteQueryUid, "17708598", "Must query Takumi API with UID 17708598");
-      assert.ok(noteReply1.includes("绳匠: 哲 (UID: 17708598)"));
-      assert.ok(noteReply1.includes("实时电量: 240 / 240 (已回满)"));
+      assert.ok(noteReply1.includes("哲 [17708598]"));
+      assert.match(noteReply1, /实时电量: 240 \/ 240 .*已回满/);
       assert.ok(noteReply1.includes("每日活跃: 500 / 500"));
 
       // -----------------------------------------------------------------------
@@ -215,8 +215,8 @@ test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查
       }
 
       const roleSwitchReply = receivedMessages[3];
-      assert.ok(roleSwitchReply.includes("已成功将主角色切换为"));
-      assert.ok(roleSwitchReply.includes("[10009999] 铃 (Lv.25)"));
+      assert.ok(roleSwitchReply.includes("绝区零主角色已切换"));
+      assert.ok(roleSwitchReply.includes("铃") && roleSwitchReply.includes("10009999"));
 
       // 验证保密库状态已切换
       const activeRoleD = vault.getActiveRole(`qq-napcat:${TEST_QQ_USER}`, "zzz");
@@ -240,7 +240,7 @@ test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查
 
       const noteReply2 = receivedMessages[4];
       assert.equal(lastNoteQueryUid, "10009999", "Must query Takumi API with switched UID 10009999");
-      assert.ok(noteReply2.includes("绳匠: 铃 (UID: 10009999)"));
+      assert.ok(noteReply2.includes("铃 [10009999]"));
       assert.ok(noteReply2.includes("实时电量: 180 / 240"));
       assert.ok(noteReply2.includes("每日活跃: 200 / 500"));
 

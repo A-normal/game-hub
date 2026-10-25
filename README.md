@@ -66,6 +66,7 @@ tests/                     跨模块契约与集成测试
 - 路由声明稳定 routeId 和语义词元，不包含部署前缀，不注册无边界的全局正则。
 - **所有提示中的命令都必须由 core 的统一命令格式化服务在发送时生成**，包括帮助、未绑定提示、错误、操作示例和定时通知。不能缓存一个前缀后长期使用，也不能偷偷回退到固定的 #、* 或 %。
 - 命令格式化必须使用目标插件在当前上下文的有效命名空间，产生该路由实际可接受且无歧义的调用形式。
+- 提示应给出最短可用形态：前缀与别名是**等价且独立**的调用标记，`%帮助` = `zzz帮助` = `绝帮助`；提示只渲染主前缀，不把前缀和别名拼接成 `%zzz帮助`。
 - 命名空间改变后，新提示立即使用新配置；旧入口只有作为显式兼容别名配置后才继续有效。
 - 快捷指令是配置映射，接受同样的冲突、权限和参数验证，不通过修改原始消息再交给其它插件抢答。
 
@@ -118,6 +119,8 @@ npm test
 - [UIGF](https://github.com/UIGF-org) 与 [mihoyo-api-sdk](https://github.com/UIGF-org/mihoyo-api-sdk)：数据交换格式和社区协议实现参考。
 - [Enka.Network](https://enka.network/)：公开展柜服务。
 - [GachaClock](https://github.com/iaoongin/GachaClock)：卡池历史文字数据，来源与 MIT 许可见 [数据源记录](docs/sources/gachaclock.md)。
+- [genshin-optimizer](https://github.com/frzyc/genshin-optimizer)：已纳入仓库的 MIT 角色计算公式及数值表，固定版本、原始许可和文件校验见 [复用记录](docs/upstream-reuse.md)。
+- [zzz-seelie-sync](https://github.com/owwkmidream/zzz-seelie-sync)：选择性移植的 MIT Android 设备 payload 模板，许可与固定版本见 [复用记录](docs/upstream-reuse.md)。
 - [NapCatQQ](https://github.com/NapNeko/NapCatQQ) 与 [OneBot](https://github.com/botuniverse/onebot-11)：聊天渠道与协议生态。
 
 游戏名称、游戏内容和相关标识归相应权利人，本项目不代表官方。

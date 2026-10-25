@@ -1,5 +1,6 @@
 import { requireRole, command, problem } from "../text.mjs";
 import { storeFor } from "../storage.mjs";
+import { recordDeadline } from "../tasks.mjs";
 export async function handleCalculationSettings(ctx) {
   const store=storeFor(ctx),owner=ctx.event.unifiedUserId;
   if(!ctx.args.length) {await ctx.event.reply("【个人计算场景】\n"+JSON.stringify(store.option(owner,"calculationScenario",{}))+"\n"+command(ctx,"calculationSettings",["<场景JSON|重置>"]));return;}
@@ -47,17 +48,60 @@ export async function handleRanking(ctx) {
     store.setOption(group,"rankEnabled",ctx.args[0]==="开启"); await ctx.event.reply("群排名设置已保存。"); return;
   }
   if (ctx.routeId==="rankReset") { if (!admin) {await ctx.event.reply("仅群管理员可以重置排名。");return {status:"DENIED"};} store.clearRanking(group); await ctx.event.reply("当前群排名已清空。"); return; }
+  if (ctx.routeId==="rankWithdraw") { store.clearRanking(group,owner); await ctx.event.reply("已撤回您在当前群的排名记录。"); return; }
   if (!store.option(group,"rankEnabled",false)) throw problem("当前群尚未开启排名，请由群管理员配置。");
   const category=ctx.args[0]==="危局"?"deadly":"shiyu";
   if (ctx.routeId==="rankPublish") {
     const role=await requireRole(ctx); if (!role) return;
     const data=store.get(owner,role,"record",category+":1")?.data;
     const body=data?.hadal_info_v2 || data?.hadal_mem_detail_v2 || data;
-    const score=Number(body?.total_score ?? body?.total_star ?? body?.star_num);
+    if(body?.has_data===false || data?.has_data===false) throw problem("本期尚无挑战记录，不能发布排名。");
+    const rawScore=body?.total_score ?? body?.total_star ?? body?.star_num;
+    const score=typeof rawScore === "number" ? rawScore : typeof rawScore === "string" && rawScore.trim() ? Number(rawScore) : NaN;
     if (!Number.isFinite(score)) throw problem("请先查询当前周期的对应战绩，再主动提交排名。");
-    store.publish(group,owner,role,category,score); await ctx.event.reply("已授权在当前群展示该角色的 "+category+" 战绩。"); return;
+    const expiresAt=recordDeadline(data);
+    if (!Number.isSafeInteger(expiresAt) || expiresAt<=store.now()) throw problem("缓存战绩缺少有效周期或已经过期，请先查询本期战绩。");
+    const period=String(expiresAt);
+    store.publish(group,owner,role,category,score,{period,expiresAt}); await ctx.event.reply("已授权在当前群展示该角色的 "+category+" 本期战绩。"); return;
   }
-  if (ctx.routeId==="rankWithdraw") { store.clearRanking(group,owner); await ctx.event.reply("已撤回您在当前群的排名记录。"); return; }
   const rows=store.rankings(group,category);
-  await ctx.event.reply("【群排名 · "+category+"】仅展示当前群主动授权的缓存战绩\n"+(rows.length?rows.map((row,i)=>(i+1)+". "+row.nickname+" ["+row.uid+"] "+row.score).join("\n"):"暂无已授权记录。"));
+  const lines=["【群排名 · "+category+"】仅展示当前群主动授权的本期战绩"];
+  let board,position=0;
+  for(const row of rows) {
+    const key=row.region+":"+row.period;
+    if(board!==key) {board=key;position=0;lines.push(row.region+" · 截止 "+new Date(row.expires_at).toISOString());}
+    lines.push(++position+". "+row.nickname+" ["+row.uid+"] "+row.score);
+  }
+  if(!rows.length)lines.push("暂无已授权记录。");
+  await ctx.event.reply(lines.join("\n"));
+}
+
+export async function handleMaintenance(ctx) {
+  const role = await requireRole(ctx);
+  if (!role) return;
+  const store = storeFor(ctx);
+  const owner = ctx.event.unifiedUserId;
+
+  if (["面板冷却", "刷新冷却"].includes(ctx.matchedToken)) {
+    if (!ctx.args.length) {
+      const currentMs = Number(store.option(owner, "panelCooldownMs", ctx.config?.panelCooldownMs ?? 60000));
+      await ctx.event.reply("【面板刷新冷却】当前设置：" + Math.round(currentMs / 1000) + " 秒。\n修改冷却：" + command(ctx, "cooldown", ["<秒数>"]));
+      return;
+    }
+    const sec = Number(ctx.args[0]);
+    if (!Number.isFinite(sec) || sec < 1 || sec > 86400) throw problem("冷却时间必须在 1 到 86400 秒之间。");
+    store.setOption(owner, "panelCooldownMs", sec * 1000);
+    await ctx.event.reply("已将您的面板刷新冷却时间设置为 " + sec + " 秒。");
+    return;
+  }
+
+  const kind = ctx.args[0];
+  let targetKind = undefined;
+  if (kind === "面板") targetKind = "panel";
+  else if (kind === "卡池") targetKind = "pools";
+  else if (kind === "战绩") targetKind = "record";
+  else if (kind === "月报") targetKind = "monthly";
+
+  const count = store.clearCache(owner, role, targetKind);
+  await ctx.event.reply("【绝区零缓存清理】已成功清除" + (targetKind ? "「" + kind + "」" : "当前角色全部") + "缓存记录，共 " + count + " 条。");
 }

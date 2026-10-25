@@ -8,6 +8,7 @@ export * from "./handlers/abyss.mjs";
 export * from "./handlers/sign.mjs";
 export * from "./handlers/gacha.mjs";
 export * from "./handlers/help.mjs";
+export * from "./handlers/settings.mjs";
 export * from "./utils/qr-encoder.mjs";
 import { ZZZPluginManifest } from "./manifest.mjs";
 import { ZzzStore } from "./storage.mjs";

@@ -1,13 +1,13 @@
 import crypto from "node:crypto";
 import { logger } from "../logger/logger.mjs";
+import { InboundShaper } from "../shaper/inbound-shaper.mjs";
 
 export const RouteStatus = Object.freeze({ NOT_MATCHED: "NOT_MATCHED", HANDLED: "HANDLED", FAILED: "FAILED", DENIED: "DENIED" });
 const result = status => ({ status });
 const normalizedNamespace = config => ({
   prefix: String(config.prefix ?? ""),
   aliases: [...new Set((config.aliases || []).map(String).filter(Boolean))],
-  priority: Number(config.priority ?? 50),
-  requireAlias: Boolean(config.requireAlias)
+  priority: Number(config.priority ?? 50)
 });
 
 export class GameHubDispatcher {
@@ -120,10 +120,18 @@ export class GameHubDispatcher {
   checkNamespaceConflicts(id, prefix, aliases = []) {
     const errors = [];
     const warnings = [];
+    // 前缀与别名是等价的调用标记：`%帮助` = `zzz帮助` = `绝帮助`。
+    // 别名重名会让同一句话落到两个插件，属硬冲突；前缀共享保留为警告，由优先级消歧。
+    const mine = new Set([prefix, ...aliases].filter(Boolean).map(value => String(value).toLowerCase()));
     for (const [otherId, ns] of this.namespaces) {
       if (otherId === id || !this.plugins.has(otherId)) continue;
-      if (aliases.some(alias => ns.aliases.some(other => other.toLowerCase() === String(alias).toLowerCase()))) errors.push("别名与插件 " + otherId + " 重叠");
-      if (prefix && ns.prefix === prefix) warnings.push("共享前缀，建议使用插件别名消歧");
+      const theirAliases = new Set(ns.aliases.map(value => String(value).toLowerCase()));
+      const theirMarkers = new Set([ns.prefix, ...ns.aliases].filter(Boolean).map(value => String(value).toLowerCase()));
+      const aliasHit = aliases.map(String).filter(alias => theirMarkers.has(alias.toLowerCase()));
+      if (aliasHit.length) errors.push("别名与插件 " + otherId + " 的命名空间重叠: " + aliasHit.join("、"));
+      else if (prefix && theirAliases.has(String(prefix).toLowerCase())) errors.push("前缀与插件 " + otherId + " 的别名重叠: " + prefix);
+      const shared = [...mine].filter(value => value === String(ns.prefix).toLowerCase());
+      if (shared.length) warnings.push("与插件 " + otherId + " 共享前缀 " + ns.prefix + "，按优先级消歧");
     }
     if (!prefix && !aliases.length) errors.push("前缀与别名不能同时为空");
     return { valid: !errors.length, errors, warnings };
@@ -138,13 +146,20 @@ export class GameHubDispatcher {
     this.vault?.setSetting("namespace:" + id, proposed);
     return { updated: this.getNamespace(id), warnings: check.warnings };
   }
+  /** 该插件接受的全部调用标记，最长优先；前缀与别名等价，各自独立使用。 */
+  markersOf(id) {
+    const ns = this.getNamespace(id);
+    if (!ns) return [];
+    return [...new Set([ns.prefix, ...ns.aliases].filter(Boolean).map(String))].sort((a, b) => b.length - a.length);
+  }
 
   commandPrefix(id) {
     const ns = this.getNamespace(id);
     if (!ns || !this.isPluginEnabled(id)) throw new Error("命令所属插件未启用: " + id);
-    if (ns.aliases.length) return ns.prefix + ns.aliases[0];
-    if (ns.prefix && !ns.requireAlias) return ns.prefix;
-    throw new Error("没有可用命名空间: " + id);
+    // 前缀与别名等价，提示里用配置的主前缀（没有前缀时退回首个别名）。
+    const marker = ns.prefix || ns.aliases[0];
+    if (!marker) throw new Error("没有可用命名空间: " + id);
+    return marker;
   }
   formatCommand({ pluginId, routeId, args = [] }) {
     const plugin = this.plugins.get(pluginId);
@@ -152,7 +167,26 @@ export class GameHubDispatcher {
     if (!route || route.stage && route.stage !== "command") throw new Error("没有可调用的命令: " + pluginId + ":" + routeId);
     const token = route.tokens?.find(Boolean);
     if (!token) throw new Error("命令缺少词元");
-    return this.commandPrefix(pluginId) + (this.getNamespace(pluginId).requireAlias ? " " : "") + token + (args.length ? " " + args.map(String).join(" ") : "");
+    const primary = this.commandPrefix(pluginId);
+    for (const marker of [...new Set([primary,...this.markersOf(pluginId)])]) {
+      const glue = !(/[a-z0-9]$/i.test(marker) && /^[a-z0-9]/i.test(token));
+      const text = marker + (glue ? "" : " ") + token + (args.length ? " " + args.map(String).join(" ") : "");
+      const target=this.resolveNamespaceCandidates(text).find(candidate=>this._matchCommand(this.plugins.get(candidate.gameId),candidate.commandText));
+      if(target?.gameId===pluginId && this._matchCommand(plugin,target.commandText)?.route.id===routeId) return text;
+    }
+    throw new Error("命名空间冲突，无法生成可用命令: "+pluginId+":"+routeId);
+  }
+  _matchCommand(plugin, text) {
+    let best;
+    for (const route of plugin?.routes || []) {
+      if(route.stage && route.stage!=="command") continue;
+      for(const token of route.tokens || []) {
+        const match=route.exact ? text===token : text.startsWith(token);
+        if(match && (token || !text) && (!best || token.length>best.token.length)) best={route,token,tail:text.slice(token.length).trim()};
+      }
+      for(const suffix of route.suffixTokens || []) if(text.endsWith(suffix) && text.length>suffix.length && (!best || suffix.length>best.token.length)) best={route,token:suffix,tail:text.slice(0,-suffix.length).trim()};
+    }
+    return best;
   }
   listPlugins() {
     return [...this.plugins.values()].map(plugin => ({
@@ -169,29 +203,29 @@ export class GameHubDispatcher {
   }
   resolveNamespaceCandidates(text) {
     const candidates = [];
+    const body = String(text || "").trim();
     for (const [id, ns] of this.namespaces) {
       if (!this.isPluginEnabled(id)) continue;
-      let body = text.trim();
-      let matched = false;
-      let explicitAlias = false;
-      if (ns.prefix && body.startsWith(ns.prefix)) { body = body.slice(ns.prefix.length).trimStart(); matched = true; }
-      for (const alias of [...ns.aliases].sort((a, b) => b.length - a.length)) {
-        if (body.toLowerCase().startsWith(alias.toLowerCase()) && (!/[a-z0-9]$/i.test(alias) || !/^[a-z0-9]/i.test(body.slice(alias.length)))) {
-          body = body.slice(alias.length).trimStart(); matched = explicitAlias = true; break;
-        }
+      // 前缀与别名都是独立的调用标记：命中任意一个后，紧跟其后的内容才是命令词元。
+      for (const marker of this.markersOf(id)) {
+        if (!body.toLowerCase().startsWith(marker.toLowerCase())) continue;
+        const rest = body.slice(marker.length);
+        // 拉丁标记不能粘在拉丁单词上（ghost 不等于 gh + ost）。
+        if (/[a-z0-9]$/i.test(marker) && /^[a-z0-9]/i.test(rest)) continue;
+        candidates.push({ gameId: id, commandText: rest.trimStart(), priority: ns.priority, marker });
+        break;
       }
-      if (matched && (!ns.requireAlias || explicitAlias)) candidates.push({ gameId: id, commandText: body, priority: ns.priority, explicitAlias });
     }
-    return candidates.sort((a, b) => Number(b.explicitAlias) - Number(a.explicitAlias) || b.priority - a.priority || a.gameId.localeCompare(b.gameId));
+    return candidates.sort((a, b) => b.priority - a.priority || a.gameId.localeCompare(b.gameId));
   }
 
-  _context(event, plugin, route, matchedToken, args) {
+  _context(event, plugin, route, matchedToken, args, argumentText = args.join(" ")) {
     const providerId = route.provider || plugin.providers?.[0]?.id || plugin.community;
     const provider = this.providers.get(providerId);
     let activeRole;
     let client;
     return {
-      event, pluginId: plugin.id, gameId: plugin.gameId, routeId: route.id, matchedToken, args, vault: this.vault, dispatcher: this, provider,
+      event, pluginId: plugin.id, gameId: plugin.gameId, routeId: route.id, matchedToken, args, argumentText, vault: this.vault, dispatcher: this, provider,
       config: plugin.config || {}, services: plugin.services || {},
       providers: { get: id => this.providers.get(id) },
       commands: { format: spec => this.formatCommand({ pluginId: plugin.id, ...spec }) },
@@ -205,8 +239,8 @@ export class GameHubDispatcher {
       }
     };
   }
-  async _execute(event, plugin, route, token, args) {
-    const ctx = this._context(event, plugin, route, token, args);
+  async _execute(event, plugin, route, token, args, argumentText) {
+    const ctx = this._context(event, plugin, route, token, args, argumentText);
     if (route.admin && !this.isAdmin(event)) {
       await event.reply("【权限拒绝】该指令仅限管理员执行。请私聊使用 " + this.formatCommand({ pluginId: "system", routeId: "auth", args: ["<Token>"] }));
       return result(RouteStatus.DENIED);
@@ -216,7 +250,9 @@ export class GameHubDispatcher {
       if (output?.status && Object.values(RouteStatus).includes(output.status)) return output;
       return result(output === false ? RouteStatus.NOT_MATCHED : RouteStatus.HANDLED);
     } catch (error) {
-      logger.warn("Dispatcher", "路由失败: " + plugin.id + ":" + route.id);
+      // 记录真实失败原因（含业务错误码），凭据与授权链接在写入前统一脱敏。
+      const detail = [error?.code || error?.name || "Error", error?.retcode !== undefined ? "retcode=" + error.retcode : "", InboundShaper.sanitizeLogText(error?.publicMessage || error?.message || "")].filter(Boolean).join(" ");
+      logger.warn("Dispatcher", "路由失败: " + plugin.id + ":" + route.id + " — " + detail);
       await event.reply("【" + plugin.name + "】" + (error.publicMessage || "执行失败，请稍后重试。"));
       return result(RouteStatus.FAILED);
     }
@@ -228,29 +264,24 @@ export class GameHubDispatcher {
       const [key,shortcut]=shortcuts[0];
       const tail=text.slice(key.length).trim();
       const args=[...(shortcut.args || []),...(tail?tail.split(/\s+/):[])];
-      const output=await this._execute(event,this.plugins.get(shortcut.pluginId),shortcut.route,shortcut.route.tokens[0],args);
+      const output=await this._execute(event,this.plugins.get(shortcut.pluginId),shortcut.route,shortcut.route.tokens[0],args,[...(shortcut.args || []),tail].filter(Boolean).join(" "));
       return output.status===RouteStatus.NOT_MATCHED ? result(RouteStatus.HANDLED) : output;
     }
     const candidates = this.resolveNamespaceCandidates(text);
     for (const candidate of candidates) {
       const plugin = this.plugins.get(candidate.gameId);
       if (!plugin) continue;
-      let best;
-      for (const route of plugin.routes.filter(item => !item.stage || item.stage === "command")) {
-        for (const token of route.tokens || []) {
-          const match = route.exact ? candidate.commandText === token : candidate.commandText.startsWith(token);
-          if (match && (token || !candidate.commandText) && (!best || token.length > best.token.length)) best = { route, token, tail: candidate.commandText.slice(token.length).trim() };
-        }
-        for (const suffix of route.suffixTokens || []) {
-          if (candidate.commandText.endsWith(suffix) && candidate.commandText.length > suffix.length && (!best || suffix.length > best.token.length)) best = { route, token: suffix, tail: candidate.commandText.slice(0, -suffix.length).trim() };
-        }
-      }
+      const best=this._matchCommand(plugin,candidate.commandText);
       if (best) {
-        const output = await this._execute(event, plugin, best.route, best.token, best.tail ? best.tail.split(/\s+/) : []);
+        const output = await this._execute(event, plugin, best.route, best.token, best.tail ? best.tail.split(/\s+/) : [],best.tail);
         if (output.status !== RouteStatus.NOT_MATCHED) return output;
       }
     }
-    const hasCommandMarker = [...this.namespaces.values()].some(ns => ns.prefix && text.startsWith(ns.prefix));
+    // Disabled plugin aliases also remain commands, never AI fallback input.
+    const hasCommandMarker = [...this.namespaces.keys()].some(id => this.markersOf(id).some(marker => {
+      if (!text.toLowerCase().startsWith(marker.toLowerCase())) return false;
+      return !(/[a-z0-9]$/i.test(marker) && /^[a-z0-9]/i.test(text.slice(marker.length)));
+    }));
     if (candidates.length || event.commandHint || hasCommandMarker) {
       await event.reply("未识别该命令，请使用已启用插件的帮助命令。");
       return result(RouteStatus.HANDLED);
@@ -272,7 +303,7 @@ export class GameHubDispatcher {
     const route = (id, tokens, action, admin = true) => ({ id, tokens, action, admin });
     this.registerPlugin({
       id: "system", name: "Game-Hub 系统管理总线",
-      defaultNamespace: { prefix: "#", aliases: ["gh", "gamehub", "总线", "/gh"], priority: 999, requireAlias: true },
+      defaultNamespace: { prefix: "#", aliases: ["#gh", "gh", "gamehub", "总线", "/gh"], priority: 999 },
       routes: [
         route("help", ["帮助", "help", "菜单", ""], async ctx => {
           const lines = ["【Game-Hub 总线管理指令手册 (管理员专用)】"];
@@ -302,11 +333,28 @@ export class GameHubDispatcher {
         route("disable", ["禁用", "disable"], async ctx => { await ctx.event.reply(this.disablePlugin(ctx.args[0]) ? "已禁用插件" : "插件不存在或不可禁用"); }),
         route("namespace", ["命名空间", "namespace"], async ctx => {
           try {
-            if (ctx.args.length < 3) { await ctx.event.reply("用法: " + ctx.commands.format({ routeId: "namespace", args: ["<插件ID>", "<前缀或空字符串>", "<别名列表>"] })); return; }
+            if (ctx.args.length < 2) {
+              await ctx.event.reply("用法: " + ctx.commands.format({ routeId: "namespace", args: ["<插件ID>", "<前缀或空字符串>", "[别名列表]"] }) + "\n前缀与别名等价，都是独立调用标记：<前缀>帮助 与 <别名>帮助 效果相同。\n只改前缀时可省略别名；别名用逗号分隔，留空表示只保留前缀。");
+              return;
+            }
             const prefix = ["''", '""'].includes(ctx.args[1]) ? "" : ctx.args[1];
-            this.setNamespace(ctx.args[0], { prefix, aliases: ctx.args[2].split(/[,，]/).filter(Boolean) });
-            await ctx.event.reply("命名空间已更新");
-          } catch { await ctx.event.reply("命名空间更新被拒绝：请检查插件ID、别名冲突和参数。"); }
+            const current = this.getNamespace(ctx.args[0]);
+            if (!current) { await ctx.event.reply("命名空间更新被拒绝：插件 " + ctx.args[0] + " 不存在或未启用。"); return; }
+            const aliases = ctx.args[2] === undefined ? [...current.aliases] : ["''", '""'].includes(ctx.args[2]) ? [] : ctx.args[2].split(/[,，]/).map(value => value.trim()).filter(Boolean);
+            const updated = this.setNamespace(ctx.args[0], { prefix, aliases });
+            const sampleRoute = this.plugins.get(ctx.args[0])?.routes.find(row => row.tokens?.some(Boolean));
+            const token = sampleRoute?.tokens?.find(Boolean) || "";
+            const forms = [updated.updated.prefix, ...updated.updated.aliases].filter(Boolean).map(marker => marker + token);
+            await ctx.event.reply([
+              "命名空间已更新",
+              "前缀: " + JSON.stringify(updated.updated.prefix),
+              "别名: " + (updated.updated.aliases.length ? updated.updated.aliases.join("、") : "无"),
+              forms.length ? "等价调用: " + forms.join(" = ") : "",
+              updated.warnings.length ? "提示：" + updated.warnings.join("；") : ""
+            ].filter(Boolean).join("\n"));
+          } catch (error) {
+            await ctx.event.reply("命名空间更新被拒绝：" + (error.publicMessage || error.message || "请检查插件ID、别名冲突和参数。"));
+          }
         }),
         route("admins", ["管理员列表", "admins"], async ctx => { await ctx.event.reply("管理员列表:\n" + [...this.adminUsers].join("\n")); }),
         route("addAdmin", ["添加管理"], async ctx => { await ctx.event.reply(this.addAdmin(ctx.args[0]) ? "已添加管理员" : "请提供用户标识"); }),

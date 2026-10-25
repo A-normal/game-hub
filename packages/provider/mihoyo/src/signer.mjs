@@ -14,6 +14,5 @@ export function signDs({ salt, generation = 2, query = "", body = "", timestamp 
   const payload = "salt=" + salt + "&t=" + timestamp + "&r=" + nonce + (generation === 2 ? "&b=" + body + "&q=" + canonical : "");
   return timestamp + "," + nonce + "," + createHash("md5").update(payload).digest("hex");
 }
-// Kept as named exports for existing consumers; use signDs for explicit protocol selection.
-export const getDs1 = (query = "", body = "") => signDs({ salt: SALTS.record, query, body });
-export const getDs2 = () => signDs({ salt: SALTS.community, generation: 1 });
+export const getDs1 = () => signDs({ salt: SALTS.community, generation: 1 });
+export const getDs2 = (query = "", body = "") => signDs({ salt: SALTS.record, generation: 2, query, body });

@@ -1,4 +1,5 @@
 import {requireRole,problem,plain,page,dataLines,shown} from "../text.mjs";
+import {divider,pager} from "../layout.mjs";
 import {storeFor} from "../storage.mjs";
 import {normalizeOfficialAvatar,findAvatar} from "../panel.mjs";
 function sourceUrl(input) { try { const url=new URL(input); if (url.protocol!=="https:" || url.username || url.password) return null; return url.href; } catch {return null;} }
@@ -25,14 +26,14 @@ export async function handleContent(ctx) {
   const query=ctx.args.filter(v=>!/^\d+$/.test(v)).join(" ");
   const entries=records.filter(row=>row.source && sourceUrl(row.url) && (!row.expiresAt || Date.parse(row.expiresAt)>now) && (!query || JSON.stringify(row).includes(query)));
   const p=page(entries,ctx.args.find(v=>/^\d+$/.test(v)),6);
-  const lines=[ctx.routeId==="codes"?"【绝区零兑换码】":"【绝区零攻略】"];
+  const lines=[ctx.routeId==="codes"?"【绝区零兑换码】":"【绝区零攻略】",divider()];
   for (const row of p.items) {
     lines.push(plain(row.title || row.code || "",200));
     if (row.code) lines.push("兑换码："+shown(row.code));
     if (row.text) lines.push(plain(row.text,1800));
     else if (ctx.routeId!=="codes") lines.push("此来源只提供原文或图片，请打开链接查看。");
-    lines.push("来源："+shown(row.source)+" "+sourceUrl(row.url),"有效期："+shown(row.expiresAt));
+    lines.push("来源："+shown(row.source)+" "+sourceUrl(row.url),"有效期："+shown(row.expiresAt),"");
   }
   if (!entries.length) lines.push("官方百科：https://www.miyoushe.com/zzz/wiki",...(query?["攻略搜索：https://wiki.biligame.com/zzz/index.php?search="+encodeURIComponent(query)]:[]),"本轮不下载或识别图片攻略；可通过内容配置添加有来源的纯文字条目。");
-  lines.push("第 "+p.number+" / "+p.total+" 页"); await ctx.event.reply(lines.join("\n"));
+  lines.push(pager(p)); await ctx.event.reply(lines.join("\n"));
 }

@@ -48,9 +48,28 @@ test("command formatting reads namespace at use time, including delayed replies"
   d.registerPlugin({id:"plain",name:"Plain",defaultNamespace:{prefix:"!",aliases:["p"]},routes:[{id:"hello",tokens:["hello"],action:async ctx=>{await gate;await ctx.event.reply(ctx.commands.format({routeId:"hello",args:["next"]}));}}]});
   const pending=d.dispatch(event("!hello",{reply:async value=>reply=value}));
   d.setNamespace("plain",{prefix:"%",aliases:["updated"]});release();await pending;
-  assert.equal(reply,"%updatedhello next");assert.equal(d.resolveNamespaceCandidates("!hello").length,0);
+  assert.equal(reply,"%hello next");assert.equal(d.resolveNamespaceCandidates("!hello").length,0);
   assert.equal(d.resolveNamespaceCandidates("updatedsomething").length,0);
   assert.equal(d.resolveNamespaceCandidates("updated帮助")[0].gameId,"plain");
+});
+test("prefix and every alias are equivalent independent command markers",async()=>{
+  const d=new GameHubDispatcher();
+  d.registerPlugin({id:"zzz",name:"ZZZ",defaultNamespace:{prefix:"%",aliases:["zzz","绝","绝区零"]},routes:[{id:"note",tokens:["便签"],action:()=>{}}]});
+  for (const text of ["%便签","zzz便签","绝便签","绝区零便签","% 便签","zzz 便签"]) {
+    const candidates=d.resolveNamespaceCandidates(text);
+    assert.equal(candidates[0]?.gameId,"zzz",text);
+    assert.equal(candidates[0]?.commandText,"便签",text);
+  }
+  assert.equal(d.formatCommand({pluginId:"zzz",routeId:"note"}),"%便签");
+  // 前缀与别名不再拼接成 `%zzz便签`：残留的 zzz 会被当成词元的一部分，路由不到任何命令
+  assert.notEqual(d.resolveNamespaceCandidates("%zzz便签")[0]?.commandText,"便签");
+  // 拉丁标记与拉丁词元之间补空格，中文词元直接粘
+  d.registerPlugin({id:"bus",name:"Bus",defaultNamespace:{prefix:"",aliases:["bus"]},routes:[{id:"help",tokens:["帮助","help"],action:()=>{}}]});
+  assert.equal(d.formatCommand({pluginId:"bus",routeId:"help"}),"bus帮助");
+  assert.equal(d.resolveNamespaceCandidates("bus help")[0].commandText,"help");
+  assert.equal(d.resolveNamespaceCandidates("bushelp").length,0);
+  // 别名与其它插件的标记重叠属硬冲突
+  assert.throws(()=>d.setNamespace("bus",{prefix:"",aliases:["zzz"]}),/重叠/);
 });
 test("admin token grants only the authenticated platform identity and refuses group claims",async t=>{
   const vault=new IdentityVault();t.after(()=>vault.close());const d=new GameHubDispatcher({vault,adminToken:"s"});

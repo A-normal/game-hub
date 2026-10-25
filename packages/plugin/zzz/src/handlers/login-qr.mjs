@@ -7,6 +7,7 @@ import crypto from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { generateQrPngBase64 } from "../utils/qr-encoder.mjs";
 import { logger } from "@game-hub/core";
+import { issueDeviceFingerprint, androidHeaders } from "@game-hub/provider-mihoyo";
 
 const PASSPORT = "https://passport-api.mihoyo.com";
 const ROLES_URL = "https://api-takumi.mihoyo.com/binding/api/getUserGameRolesByCookie?game_biz=nap_cn";
@@ -116,7 +117,7 @@ export function createLoginQrHandler({
     assertCurrent(session);
     const timeout = Math.min(requestTimeoutMs, session.deadline - now());
     const signal = AbortSignal.any([session.controller.signal, AbortSignal.timeout(Math.max(1, Math.ceil(timeout)))]);
-    const response = await fetchImpl(url, { ...options, signal });
+    const response = await fetchImpl(url, { ...options, redirect: "error", signal });
     assertCurrent(session);
     if (!response.ok) throw new LoginError("米哈游请求失败 (HTTP " + response.status + ")，请稍后重试。");
     let data;
@@ -129,7 +130,7 @@ export function createLoginQrHandler({
     return { response, data };
   }
 
-  async function exchangeCookieToken(cookies, identity, deviceId, session) {
+  async function exchangeCookieToken(cookies, identity, device, session) {
     const stoken = cookies.get("stoken_v2") || cookies.get("stoken");
     if (!stoken || !identity.mid) {
       throw new LoginError("扫码授权未返回可用的 Cookie 凭据，请重新扫码。");
@@ -144,13 +145,14 @@ export function createLoginQrHandler({
         Accept: "application/json",
         "x-rpc-game_biz": "bbs_cn",
         "x-rpc-sys_version": "12",
-        "x-rpc-device_id": deviceId,
-        "x-rpc-device_fp": randomString(13),
-        "x-rpc-device_name": randomString(16),
-        "x-rpc-device_model": randomString(16),
+        "x-rpc-device_id": device.device_id,
+        "x-rpc-device_fp": device.device_fp,
+        "x-rpc-device_name": device.device_name || "Game-Hub",
+        "x-rpc-device_model": device.device_model || "Standalone",
         "x-rpc-app_id": "bll8iq97cem8",
         "x-rpc-client_type": "2",
         "User-Agent": "Hyperion/550 CFNetwork/3860.500.112 Darwin/25.4.0",
+        ...(device.device_android ? androidHeaders(device.device_android) : {}),
         Cookie: "stoken=" + stoken + "; stuid=" + identity.uid + "; mid=" + identity.mid
       }
     }, session);
@@ -163,6 +165,10 @@ export function createLoginQrHandler({
   }
 
   return async function handleLoginQr(ctx) {
+    if (ctx.event.isGroup) {
+      await ctx.event.reply("请在私聊中发起或取消扫码登录，二维码属于私人授权凭据。");
+      return { status: "DENIED" };
+    }
     const userId = ctx.event.unifiedUserId;
     const args = ctx.args || [];
     const token = ctx.matchedToken || "";
@@ -199,6 +205,7 @@ export function createLoginQrHandler({
     };
     sessions.set(userId, session);
     const deviceId = randomString(16);
+    let issuedDevice;
     const isWebMode = /\bweb\b|网页/i.test(ctx.event.cleanText || "");
     const endpoint = isWebMode ? "web" : "app";
     const headers = {
@@ -216,6 +223,10 @@ export function createLoginQrHandler({
     );
 
     try {
+      session.stage="获取官方设备指纹";
+      issuedDevice=await issueDeviceFingerprint({deviceId,fetchImpl,signal:session.controller.signal,timeoutMs:requestTimeoutMs});
+      assertCurrent(session);
+      headers["x-rpc-device_fp"]=issuedDevice.device_fp;
       logger.info("Plugin:zzz", "用户 " + userId + " 发起扫码登录 (模式: " + endpoint + ")");
       const created = await passportRequest("createQRLogin", {});
       const { url, ticket } = validateApi(created.data, "创建二维码");
@@ -278,14 +289,25 @@ export function createLoginQrHandler({
 
       session.stage = "校验登录凭据";
       const identity = parseCredentials(confirmed, cookies);
+      // 只能复用这次已确认账号的设备，不能从另一个主角色借用。
+      const bindingBefore = ctx.vault.getUserCredential?.(userId, "mihoyo", identity.uid) || null;
+      const existing = args.includes("重建设备") ? {} : bindingBefore?.device || {};
+      const device = {
+        ...existing,
+        device_id: existing.device_id || deviceId,
+        ...(existing.device_fp ? {} : existing.device_id ? await issueDeviceFingerprint({deviceId:existing.device_id,mobile:existing.device_android,fetchImpl,signal:session.controller.signal,timeoutMs:requestTimeoutMs}) : issuedDevice)
+      };
       if (!cookies.get("cookie_token") && !cookies.get("cookie_token_v2")) {
-        await exchangeCookieToken(cookies, identity, deviceId, session);
+        await exchangeCookieToken(cookies, identity, device, session);
       }
       const fullCookies = cookieString(cookies);
       session.stage = "获取绝区零角色";
       const rolesResponse = await requestJson(ROLES_URL, {
         headers: {
           "User-Agent": "Hyperion/550 CFNetwork/3860.500.112 Darwin/25.4.0",
+          "x-rpc-device_id": device.device_id,
+          "x-rpc-device_fp": device.device_fp,
+          ...(device.device_android ? androidHeaders(device.device_android) : {}),
           Cookie: fullCookies
         }
       }, session);
@@ -304,9 +326,17 @@ export function createLoginQrHandler({
         };
       });
       const primary = roles.reduce((best, role) => !best || role.level > best.level ? role : best, null);
+      // 重复扫码保留用户手动选过的主角色；只有该角色不属于这次登录时才回落到最高等级角色。
+      const previous = typeof ctx.vault?.getActiveRole === "function" ? ctx.vault.getActiveRole(userId, "zzz") : null;
+      const keepActive = previous && roles.some(role => role.uid === previous.uid && role.region === previous.region);
+      const activeUid = keepActive ? previous.uid : primary?.uid;
 
       assertCurrent(session);
       session.stage = "保存登录绑定";
+      const bindingNow=ctx.vault.getUserCredential?.(userId,"mihoyo",identity.uid) || null;
+      if(Boolean(bindingBefore)!==Boolean(bindingNow) || JSON.stringify(bindingBefore?.device)!==JSON.stringify(bindingNow?.device)) {
+        throw new LoginError("登录期间账号绑定或设备配置已变化，本次未覆盖配置，请重新扫码。");
+      }
       ctx.vault.saveAccountBinding({
         unifiedUserId: userId,
         platform,
@@ -315,19 +345,22 @@ export function createLoginQrHandler({
         accountKey: identity.uid,
         gameId: "zzz",
         cookies: { ck: fullCookies },
-        device: { device_id: deviceId },
+        device,
         roles,
-        activeUid: primary?.uid
+        activeUid
       });
       logger.info("Plugin:zzz", "用户 " + userId + " 扫码绑定已保存，绝区零角色数: " + roles.length);
       session.stage = "发送登录结果";
-      await ctx.event.reply(primary ? [
+      const shown = keepActive && previous && primary && previous.uid !== primary.uid
+        ? roles.find(role => role.uid === previous.uid) || primary
+        : primary;
+      await ctx.event.reply(shown ? [
         "🎉 【米游社账号扫码绑定成功】",
         "• 通行证 ID: " + identity.uid,
-        "• 绳匠昵称: " + primary.nickname,
-        "• 绳网 UID: " + primary.uid + " (" + primary.region + ")",
-        "• 绳网等级: " + primary.level + " 级",
-        "✅ 角色已设为主激活角色，登录凭据已保存。",
+        "• 绳匠昵称: " + shown.nickname,
+        "• 绳网 UID: " + shown.uid + " (" + shown.region + ")",
+        "• 绳网等级: " + shown.level + " 级",
+        keepActive ? "✅ 已保留原先的主角色，登录凭据已更新。" : "✅ 已设为主激活角色，登录凭据已保存。",
         "💡 可使用「" + ctx.commands.format({ routeId: "note" }) + "」查询。"
       ].join("\n") : [
         "🎉 【米游社账号扫码登录成功】",

@@ -5,6 +5,9 @@
 
 import { MihoyoTakumiClient } from "./client.mjs";
 import { getDs1, getDs2, SALTS } from "./signer.mjs";
+import { issueDeviceFingerprint } from "./device.mjs";
+export { issueDeviceFingerprint } from "./device.mjs";
+export { normalizeAndroidProfile, androidHeaders } from "./android-profile.mjs";
 export const configSchema={type:"object",additionalProperties:false,properties:{timeoutMs:{type:"number",minimum:1000,maximum:60000}}};
 
 export class MihoyoCommunityProvider {
@@ -26,6 +29,7 @@ export class MihoyoCommunityProvider {
   createClient(cookies, device) {
     return new MihoyoTakumiClient(cookies, device,this.options);
   }
+  issueDeviceFingerprint(deviceId,options={}) {return issueDeviceFingerprint({deviceId,fetchImpl:this.options.fetchImpl,timeoutMs:this.options.timeoutMs,...options});}
 
   /**
    * 通用网关调用入口 (兼容 SPI ICommunityProvider 契约)

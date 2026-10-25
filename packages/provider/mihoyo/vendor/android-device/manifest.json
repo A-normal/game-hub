@@ -1,0 +1,14 @@
+{
+  "repository": "owwkmidream/zzz-seelie-sync",
+  "pin": "5c15dee88eddb52640971e103621c70da7787afb",
+  "license": "MIT",
+  "declaration": "https://github.com/owwkmidream/zzz-seelie-sync/blob/5c15dee88eddb52640971e103621c70da7787afb/README.md#-license",
+  "source": "src/api/hoyo/devicePayload.ts",
+  "sourceSha256": "c2f5e836d6ec1bfba6cbe51ec368b1e9252c5b95fd8d47f42dc899835a72c09c",
+  "changes": "Retain only the pure buildDeviceExtFields function; remove TypeScript annotations; supply app version as an argument. Actual imported device fields override template defaults in our adapter.",
+  "files": {
+    "devicePayload.ts": "c2f5e836d6ec1bfba6cbe51ec368b1e9252c5b95fd8d47f42dc899835a72c09c",
+    "payload.mjs": "575d5be6f4f15159a640885909386e661976e136bbc4ae270ba0a37ea03fd47f",
+    "LICENSE": "6ab059d9a40f6d5b5253243a23c080d6fb5418111430615ddeed2b9d1ff12067"
+  }
+}

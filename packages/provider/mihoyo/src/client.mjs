@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { signDs, SALTS } from "./signer.mjs";
+import { androidHeaders } from "./android-profile.mjs";
 
 export class MihoyoError extends Error {
   constructor(code, publicMessage, retcode) { super(code); this.name = "MihoyoError"; this.code = code; this.publicMessage = publicMessage; this.retcode = retcode; }
@@ -10,7 +11,7 @@ const allowedHosts = new Set(["api-takumi.mihoyo.com", "api-takumi-record.mihoyo
 export const RECORDS = Object.freeze({
   index: ["index", "role"], avatars: ["avatar/basic", "role"], avatar: ["avatar/info", "role"], buddies: ["buddy/info", "role"], note: ["note", "role"],
   shiyu: ["hadal_info_v2", "role", true], deadly: ["hadal_mem_detail_v2", "uid", true], holo: ["holo_boss_detail", "uid", true],
-  tower: ["climbing_tower_detail", "uid"], voidOverview: ["void_front_battle_abstract_info", "uid"], void: ["void_front_battle_period_detail", "uid", true],
+  tower: ["climbing_tower_detail", "uid"], void: ["void_front_battle_period_detail", "uid", true],
   hollow: ["abyss_abstract", "role"], hollowDetail: ["abyss_detail", "role"], hollow2: ["abysss2_abstract", "uid"],
   zenkov: ["zenkov_abstract_info", "uid"], zenkovDetail: ["zenkov_detail", "uid"], exploration: ["exploration_detail", "uid"],
   calendar: ["activity_calendar", "uid"], pools: ["gacha_calendar", "uid"]
@@ -18,7 +19,7 @@ export const RECORDS = Object.freeze({
 export class MihoyoTakumiClient {
   constructor(cookies = {}, device = {}, options = {}) {
     this.cookieString = cookieString(cookies);
-    this.device = { deviceId: device.device_id || crypto.randomUUID(), deviceFp: device.device_fp, deviceName: device.device_name, deviceModel: device.device_model };
+    this.device = { deviceId: device.device_id || crypto.randomUUID(), deviceFp: device.device_fp, deviceName: device.device_name, deviceModel: device.device_model, android:device.device_android };
     this.fetch = options.fetchImpl || ((...args) => fetch(...args));
     this.timeoutMs = options.timeoutMs ?? 15000;
     this.signer = options.sign || signDs;
@@ -50,6 +51,7 @@ export class MihoyoTakumiClient {
       ...(this.device.deviceFp && !publicRequest ? { "x-rpc-device_fp": this.device.deviceFp } : {}),
       ...(this.device.deviceName && !publicRequest ? { "x-rpc-device_name": this.device.deviceName } : {}),
       ...(this.device.deviceModel && !publicRequest ? { "x-rpc-device_model": this.device.deviceModel } : {}),
+      ...(!publicRequest && this.device.android ? androidHeaders(this.device.android) : {}),
       ...(body ? { "Content-Type": "application/json;charset=UTF-8" } : {}), ...(options.headers || {})
     };
     const controller = new AbortController();
@@ -69,7 +71,7 @@ export class MihoyoTakumiClient {
     const response = await this.request(endpoint, options);
     if (response.retcode !== 0) {
       const code = response.retcode;
-      const message = [-100, -101, 10001, 10002, -10001].includes(code) ? "登录凭据已失效，请重新登录。" : [10102, 10103].includes(code) ? "游戏数据未公开或无查询权限。" : code === 1034 ? "社区要求安全验证，请在官方客户端完成验证后重试。" : "社区接口拒绝请求（代码 " + code + "）。";
+      const message = [-100, -101, 10001, 10002, -10001].includes(code) ? "登录凭据已失效，请重新登录。" : [10102, 10103].includes(code) ? "游戏数据未公开或无查询权限。" : code === 1034 ? "社区要求安全验证，请在官方客户端完成验证后重试。" : code === 10041 ? "米游社拒绝当前请求的设备或安全校验（10041）。官方 App 正常时，也可能是机器人设备与凭据环境不匹配。" : "社区接口拒绝请求（代码 " + code + "）。";
       throw new MihoyoError("API", message, code);
     }
     if (!response.data || typeof response.data !== "object") throw new MihoyoError("SCHEMA", "社区没有返回有效数据。");

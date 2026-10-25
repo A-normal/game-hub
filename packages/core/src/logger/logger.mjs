@@ -1,3 +1,5 @@
+import { InboundShaper } from "../shaper/inbound-shaper.mjs";
+import { inspect } from "node:util";
 /**
  * @file packages/core/src/logger/logger.mjs
  * @description Game-Hub 高性能全链路结构化日志器
@@ -29,6 +31,10 @@ const Colors = {
   cyan: noColor ? "" : "\x1b[36m",
   white: noColor ? "" : "\x1b[37m"
 };
+
+function scrubSensitive(text) {
+  return InboundShaper.sanitizeLogText(String(text ?? ""));
+}
 
 export class Logger {
   /**
@@ -92,22 +98,23 @@ export class Logger {
     else if (tag.includes("System")) tagColor = Colors.green;
 
     const tagBadge = `${tagColor}[${tag}]${Colors.reset}`;
-    const formattedMsg = typeof message === "object" ? JSON.stringify(message, null, 2) : String(message);
+    const rawFormatted = typeof message === "object" ? JSON.stringify(message, null, 2) : String(message);
+    const formattedMsg = scrubSensitive(rawFormatted);
 
     const out = `${timeStr} ${levelBadge} ${tagBadge} ${formattedMsg}`;
 
     if (level >= LogLevel.ERROR) {
       if (extra instanceof Error) {
         console.error(out);
-        console.error(`${Colors.red}${extra.stack || extra.message}${Colors.reset}`);
+        console.error(`${Colors.red}${scrubSensitive(extra.stack || extra.message)}${Colors.reset}`);
       } else if (extra) {
-        console.error(out, extra);
+        console.error(out, scrubSensitive(inspect(extra, {depth:4})));
       } else {
         console.error(out);
       }
     } else {
       if (extra) {
-        console.log(out, extra);
+        console.log(out, scrubSensitive(inspect(extra, {depth:4})));
       } else {
         console.log(out);
       }

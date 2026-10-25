@@ -37,9 +37,9 @@ test("Identity Vault & Data Integrity Test Suite", async (t) => {
     assert.equal(afterBindings.c, 1, "P0-01 Fix: Bindings MUST NOT be deleted after saveCredential re-run");
     assert.equal(afterRoles.c, 1, "P0-01 Fix: Roles MUST NOT be deleted after saveCredential re-run");
 
-    // 验证凭据字段成功更新
-    const credRow = vault.db.prepare("SELECT cookies_json FROM community_credentials WHERE account_key = ?").get(accountKey);
-    assert.ok(credRow.cookies_json.includes("refreshed_token"), "Credentials cookies_json must be updated");
+    // 验证凭据字段成功更新（凭据落库为密文，通过公开读取路径校验明文）
+    const refreshed = vault.getUserCredential(unifiedUserId, providerId, accountKey);
+    assert.equal(refreshed?.cookies?.ltoken, "refreshed_token", "Credentials must be updated");
 
     // 验证外键无任何悬挂损坏
     const fkViolations = vault.foreignKeyCheck();

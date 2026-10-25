@@ -1,8 +1,10 @@
-import { requireRole, command, dataLines, page, problem, shown } from "../text.mjs";
+import { requireRole, command, dataEntries, dataLines, page, problem, shown } from "../text.mjs";
+import { title, divider, section, pager } from "../layout.mjs";
 import { storeFor } from "../storage.mjs";
 import {refreshPoolHistory,PUBLIC_ROLE} from "../public-data.mjs";
 
-const recordKinds = {card:["index","绳网资料"],avatars:["avatars","代理人"],buddies:["buddies","邦布"],abyss:["shiyu","式舆防卫战"],deadly:["deadly","危局强袭战"],holo:["holo","全息拟境"],tower:["tower","模拟鏖战试炼"],void:["void","临界推演"],voidOverview:["voidOverview","临界总览"],hollow:["hollow","零号空洞"],hollowDetail:["hollowDetail","枯萎之都"],hollow2:["hollow2","迷失之地"],zenkov:["zenkov","绝境作战总览"],zenkovDetail:["zenkovDetail","绝境作战详情"],exploration:["exploration","探索"],calendar:["calendar","活动日历"]};
+const recordKinds = {card:["index","绳网资料"],avatars:["avatars","代理人"],buddies:["buddies","邦布"],abyss:["shiyu","式舆防卫战"],deadly:["deadly","危局强袭战"],holo:["holo","全息拟境"],tower:["tower","模拟鏖战试炼"],void:["void","临界推演"],hollow:["hollow","零号空洞"],hollowDetail:["hollowDetail","枯萎之都"],hollow2:["hollow2","迷失之地"],zenkov:["zenkov","绝境作战总览"],zenkovDetail:["zenkovDetail","绝境作战详情"],exploration:["exploration","探索"],calendar:["calendar","活动日历"]};
+const kvLines = (rows, indent = "  ") => rows.map(([key, value]) => indent + key + ": " + value);
 export async function handleRecord(ctx) {
   const spec = recordKinds[ctx.routeId] || recordKinds.abyss;
   const role = await requireRole(ctx,spec[1]); if (!role) return;
@@ -11,14 +13,23 @@ export async function handleRecord(ctx) {
   const extra = previous ? {schedule_type:2} : {};
   const data = await ctx.client.record(spec[0],role.uid,role.region,extra);
   const store = storeFor(ctx); store.put(ctx.event.unifiedUserId,role,"record",spec[0]+":"+(previous?2:1),data);
-  const lines = ["【绝区零 · "+spec[1]+"】"+role.nickname+" ["+role.uid+"]","来源：米游社 / "+(previous?"上期":"当前")];
+  const lines = [title("绝区零 · "+spec[1]), role.nickname + " [" + role.uid + "]", "来源：米游社 · " + (previous ? "上期" : "当前") + "周期", divider()];
   if (data.has_data === false || data.is_unlock === false || data.is_unlocked === false || data.unlock === false) lines.push("暂无记录或尚未解锁。");
   else {
     const array = data.avatar_list || data.list || data.buddy_list;
-    const p = array ? page(array,ctx.args.find(v=>/^\d+$/.test(v))) : null;
-    const output = dataLines(p ? p.items : data);
-    lines.push(...(output.length ? output : ["暂无可显示的记录。"]));
-    if (p) lines.push("第 "+p.number+" / "+p.total+" 页；"+command(ctx,ctx.routeId,[String(p.number+1)]));
+    if (array) {
+      const p = page(array,ctx.args.find(v=>/^\d+$/.test(v)));
+      p.items.forEach((item,index) => {
+        if (index) lines.push("");
+        lines.push(section("第 " + ((p.number - 1) * 15 + index + 1) + " 项", 14));
+        const rows = dataEntries(item, { budget: { left: 12 } });
+        lines.push(...(rows.length ? kvLines(rows) : ["  暂无可显示的记录。"]));
+      });
+      lines.push("", pager(p, command(ctx,ctx.routeId,[String(p.number+1)])));
+    } else {
+      const rows = dataEntries(data);
+      lines.push(...(rows.length ? kvLines(rows) : ["暂无可显示的记录。"]));
+    }
   }
   await ctx.event.reply(lines.join("\n"));
 }
@@ -47,7 +58,7 @@ export async function handleMonthly(ctx) {
   }
   if (["monthlySummary","monthlyRefresh"].includes(ctx.routeId)) {
     const entries = store.list(owner,role,"monthly");
-    const lines = ["【绝区零月报汇总】自动同步官方可用月份并合并已存档历史",...(refreshFailed?["本次刷新失败，展示原缓存汇总。"]:[])];
+    const lines = [title("绝区零月报汇总"),"自动同步官方可用月份并合并已存档历史",...(refreshFailed?["本次刷新失败，展示原缓存汇总。"]:[]),divider()];
     const totals = new Map();
     for (const entry of entries) {
       lines.push(entry.key+"："+(entry.data.month_data?.list || []).map(r=>shown(r.data_name)+" "+shown(r.count)).join(" / "));
@@ -63,7 +74,7 @@ export async function handleMonthly(ctx) {
   const key = monthKey(data.data_month || requested || data.current_month);
   if (requested && key !== requested) throw problem("官方返回了其它月份，未覆盖请求月份的缓存。");
   store.put(owner,role,"monthly",key,data);
-  await ctx.event.reply(["【绝区零月报】"+key,"来源：米游社月报",...dataLines(data)].join("\n"));
+  await ctx.event.reply([title("绝区零月报 · "+key),"来源：米游社月报",divider(),...dataLines(data)].join("\n"));
 }
 export async function handlePools(ctx) {
   if (!/当前卡池/.test(ctx.matchedToken)) {

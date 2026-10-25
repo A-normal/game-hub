@@ -12,12 +12,18 @@
 | --- | --- | --- | --- |
 | ZZZure/ZZZ-Plugin | `1a322076120b6148188bab154834ad19628c179c` | 实际 LICENSE 为 AGPL-3.0；`dist/lib/mysapi.js` 继承云崽 `MysApi`，其它模块依赖旧插件的全局设施 | 仅核对功能；不复制实现 |
 | UIGF-org/mihoyo-api-sdk | `7c3107f95b72e7324af966b2e8989eb8375e5fc7` | MIT；有独立 DS 辅助代码、TypeSpec 协议和生成客户端 | 合适的选择性移植候选；本文件落地时尚未复制 |
+| frzyc/genshin-optimizer | `2ce06b88a442531b49d84cbed15204a4a03d078a` | MIT；角色公式、数值表及所需纯计算模块 | 已以源码和独立 ESM bundle 纳入 `packages/plugin/zzz/vendor/optimizer`，原许可证及逐文件 hash 位于该目录；运行不依赖旧宿主 |
+| owwkmidream/zzz-seelie-sync | `5c15dee88eddb52640971e103621c70da7787afb` | README 及 userscript 明确 MIT；独立设备扩展字段模板 | 仅移植纯 payload 构造函数至 `packages/provider/mihoyo/vendor/android-device`；保留作者、MIT 告知、原始源码和 hash；七字段导入、校验、持久化由本仓库实现 |
 
 UIGF 的完整生成客户端带有 Azure 运行依赖，包含大量本仓库不需要的服务。更适合从 MIT 来源裁取独立签名逻辑、核对所需接口，再用当前原生 fetch 实现 provider 的统一生命周期；不为省去少量包装引入整套生成客户端。
 
 内部自定义优化单独记录为需求／行为依据，例如 `../zzz-bot` 的面板刷新、快捷指令和签到行为；不列入本表或根 README 的外部致谢。
 
+Android 模板的容量、传感器等默认值不是手机实测信息，不能当作真机信任凭证；适配和许可依据见 [设备 payload 说明](../packages/provider/mihoyo/vendor/android-device/README.md)。`forchannot/get_device_info` 仅作为用户取得七字段 JSON 的工具来源，没有把 APK 或其实现打包进仓库。
+
 DS 实现本身不包含可用盐值；仍需确认具体接口族的盐值、签名代际、请求头、设备和凭据类型。协议定义不是官方服务可用性的保证。
+
+实际计算代码完整性用 `node tools/verify-vendor.mjs` 核对；构建入口为 `tools/vendor-optimizer.mjs`。公式测试覆盖当前锁定目录的角色技能，但模拟输入和有限独立基准不能等同于全部角色真机数值验收。
 
 ## 能节省什么
 

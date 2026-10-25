@@ -89,7 +89,7 @@ test("explicit task opt-in, daily random slot, recovery dedupe, current namespac
   const h=setup(t,{client:{signInfo:async()=>({is_sign:signed}),sign:async()=>{signs++;signed=true;return {}; }},services:{now:()=>now}});
   const tasks=new ZzzTasks({store:h.store,vault:h.vault,dispatcher:h.dispatcher,now:()=>now,random:()=>9*60,setTimer:()=>{timerCreated++;return 1;},clearTimer:()=>timerCleared++});
   h.dispatcher.plugins.get("zzz").services.tasks=tasks;
-  h.dispatcher.deliver=async(target,message)=>{deliveries++;assert.equal(target.userId,"1");assert.match(message,/%new签到状态/);};
+  h.dispatcher.deliver=async(target,message)=>{deliveries++;assert.equal(target.userId,"1");assert.match(message,/%签到状态/);};
   assert.equal(h.store.jobs().length,0);await h.run("*自动签到 开启");const job=h.store.jobs(owner)[0];assert.equal(job.enabled,true);assert.equal(job.settings.minute,540);
   h.dispatcher.setNamespace("zzz",{prefix:"%",aliases:["new"]});now=job.nextRun+1000;
   await tasks.tick();assert.equal(signs,1);assert.equal(deliveries,1);assert.equal(h.store.runState(job.id,chinaDay(now)),"delivered");
@@ -98,7 +98,7 @@ test("explicit task opt-in, daily random slot, recovery dedupe, current namespac
   await h.run("%自动签到 关闭");assert.equal(h.store.jobs(owner)[0].enabled,false);
 });
 test("group ranking requires group enablement, explicit publication and supports privacy and withdrawal",async t=>{
-  const h=setup(t,{client:{record:async()=>({hadal_info_v2:{total_star:8}})}});const group={isGroup:true,groupId:"g"};
+  const h=setup(t,{client:{record:async()=>({hadal_info_v2:{total_star:8,end_time:Math.floor(Date.now()/1000)+3600}})}});const group={isGroup:true,groupId:"g"};
   await h.run("*深渊");await h.run("*提交排名",group);assert.match(h.replies.at(-1),/尚未开启/);
   assert.equal((await h.run("*群排名设置 开启",group)).status,"DENIED");
   await h.run("*群排名设置 开启",{...group,sender:{id:"1",role:"admin"}});await h.run("*提交排名",group);await h.run("*排名",group);assert.match(h.replies.at(-1),/哲/);

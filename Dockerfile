@@ -12,12 +12,13 @@ WORKDIR /app
 # 启用 corepack 并锁定 pnpm 版本
 RUN corepack enable && corepack prepare pnpm@12.5.1 --activate
 
-# 复制 Workspace 依赖定义文件
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# 复制 Workspace 依赖定义文件与配置
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc* ./
 COPY packages/ ./packages/
 
-# 安装项目依赖 (冻结 lockfile)
-RUN pnpm install --frozen-lockfile
+# 安装项目生产依赖 (批准必要构建脚本，冻结 lockfile)
+RUN pnpm config set --location=project --json allowBuilds '{"esbuild":true}' \
+    && pnpm install --prod --frozen-lockfile
 
 # 复制全部应用源码
 COPY . .

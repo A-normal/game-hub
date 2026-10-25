@@ -1,7 +1,23 @@
 import { command, requireRole, page, problem, shown } from "../text.mjs";
+import { title, divider, section, list, pager } from "../layout.mjs";
 import { storeFor } from "../storage.mjs";
-import { syncGacha, importGacha, parseGachaLink, gachaStatistics } from "../gacha.mjs";
+import { syncGacha, parseGachaLink, gachaStatistics } from "../gacha.mjs";
+const defaultInflight = new Set();
 export async function handleGacha(ctx) {
+  // 导入走服务器侧一次性迁移：QQ 渠道无法承载「文字+文件」，长 JSON 也不能作为正文发送。
+  if (ctx.routeId === "gachaImport") {
+    await ctx.event.reply([
+      title("绝区零调频导入"),
+      "聊天内不再解析导入文件：QQ 渠道不支持「文字+文件」消息，UIGF/SRGF 也无法作为消息正文发送。",
+      divider(),
+      "一次性迁移请在服务器执行（与自动同步写入同一账号范围）：",
+      "  node tools/import-gacha.mjs <导出的JSON文件> <聊天用户ID> <游戏UID> [数据库路径]",
+      "当前聊天用户：" + ctx.event.unifiedUserId,
+      ctx.activeRole ? "当前角色 UID：" + ctx.activeRole.uid : "当前尚未激活角色，可省略的 UID 请先选择主角色。",
+      "日常同步请使用「" + command(ctx, "gachaUpdate") + "」自动拉取官方记录。"
+    ].join("\n"));
+    return;
+  }
   const role = await requireRole(ctx,"绝区零调频"); if (!role) return;
   const store = storeFor(ctx); const owner = ctx.event.unifiedUserId;
   const token = ctx.routeId === "gachaLink" ? "记录链接" : ctx.matchedToken;
@@ -15,16 +31,9 @@ export async function handleGacha(ctx) {
     inflight.add(lock);
     try {
       const result = await syncGacha({client:ctx.client,role,owner,store,authkey});
-      await ctx.event.reply("调频同步完成：读取 "+result.fetched+" 条，新增 "+result.added+" 条。\n"+command(ctx,"gachaRecords"));
+      await ctx.event.reply(title("绝区零调频同步") + "\n读取 " + result.fetched + " 条，新增 " + result.added + " 条。\n" + command(ctx,"gachaRecords"));
     } finally { inflight.delete(lock); }
     return;
-  }
-  if (token === "导入抽卡") {
-    if (ctx.event.isGroup) { await ctx.event.reply("调频数据请在私聊导入。"); return {status:"DENIED"}; }
-    const text = ctx.args.join(" "); if (text.length > 5000000) throw problem("导入文件过大。");
-    const records = importGacha(text,role);
-    const added = store.importGacha(owner,role,records);
-    await ctx.event.reply("辅助导入完成：新增 "+added+" 条。\n自动更新："+command(ctx,"gachaUpdate")); return;
   }
   const records = store.gacha(owner,role);
   if (token === "导出抽卡") {
@@ -34,15 +43,17 @@ export async function handleGacha(ctx) {
     if (output.length > 50000) throw problem("记录过长，暂不通过聊天正文导出；请使用仓库数据备份。");
     await ctx.event.reply(output); return;
   }
-  if (!records.length) { await ctx.event.reply("本地暂无调频记录。请使用「"+command(ctx,"gachaUpdate")+"」从当前登录账号自动同步；也可私聊附上官方记录链接。"); return; }
-  const lines = ["【绝区零调频分析】"+role.uid,"范围：本地已同步记录；首个 S 之前和已过期记录可能不完整。"];
+  if (!records.length) { await ctx.event.reply(title("绝区零调频") + "\n本地暂无调频记录。请使用「" + command(ctx,"gachaUpdate") + "」从当前登录账号自动同步；也可私聊附上官方记录链接。"); return; }
+  const lines = [title("绝区零调频分析"), "UID " + role.uid, "范围：本地已同步记录；首个 S 之前和已过期记录可能不完整。", divider()];
   for (const stat of gachaStatistics(records)) {
-    lines.push(stat.name+": "+stat.total+" 抽；S "+stat.s+"；A "+stat.a+"；已垫 "+stat.pity+"；记录内平均 S 间隔 "+(stat.average===null?"无":stat.average.toFixed(2)));
-    if (/记录/.test(token)) for (const row of stat.wins.slice(-8)) lines.push("  "+shown(row.name)+"："+row.pulls+" 抽（"+row.time+"）");
+    lines.push("", section(stat.name, 16));
+    lines.push("  " + stat.total + " 抽；S " + stat.s + "；A " + stat.a + "；已垫 " + stat.pity + "；记录内平均 S 间隔 " + (stat.average===null?"无":stat.average.toFixed(2)));
+    if (/记录/.test(token)) lines.push(...list(stat.wins.slice(-8).map(row => shown(row.name) + "：" + row.pulls + " 抽（" + row.time + "）"), { indent: "    " }));
   }
   if (ctx.args.includes("明细")) {
-    const p = page([...records].reverse(),ctx.args.at(-1)); lines.push("明细 "+p.number+"/"+p.total,...p.items.map(r=>r.time+" "+r.name+" 等级"+r.rank_type));
+    const p = page([...records].reverse(),ctx.args.at(-1));
+    lines.push("", section("最近记录明细", 16), ...list(p.items.map(r => r.time + " " + r.name + " 等级" + r.rank_type), { indent: "  " }), pager(p));
   }
-  lines.push("更新："+command(ctx,"gachaUpdate")); await ctx.event.reply(lines.join("\n"));
+  lines.push(divider(), "更新：" + command(ctx,"gachaUpdate"));
+  await ctx.event.reply(lines.join("\n"));
 }
-const defaultInflight = new Set();

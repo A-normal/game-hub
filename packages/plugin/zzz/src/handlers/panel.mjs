@@ -20,7 +20,7 @@ export async function handlePanel(ctx) {
   const now=ctx.services.now?.() ?? Date.now();
   if (refresh) {
     if (inflight.has(key)) throw problem("当前角色正在更新面板，请稍后查询。");
-    const cooldown=Math.max(1000,Number(ctx.config.panelCooldownMs ?? 60000));
+    const cooldown=Math.max(1000,Number(store.option(owner,"panelCooldownMs",ctx.config?.panelCooldownMs ?? 60000)));
     if (cache && now-cache.updatedAt<cooldown) throw problem("更新冷却中，请稍后重试；可查询已缓存面板。");
     inflight.add(key);
     try {
@@ -43,7 +43,10 @@ export async function handlePanel(ctx) {
       } else {
         const fetcher=ctx.services.fetchImpl || ((...params)=>fetch(...params));
         const response=await fetcher("https://enka.network/api/zzz/uid/"+role.uid,{headers:{"User-Agent":"Game-Hub/1.0"},redirect:"error",signal:AbortSignal.timeout(15000)});
-        if (!response.ok) throw problem("公开展柜请求失败（HTTP "+response.status+"），旧缓存已保留。");
+        if (!response.ok) {
+          const reason={403:"公开展柜上游拒绝当前请求",404:"公开展柜未找到该 UID 的公开资料",424:"公开展柜上游暂不可用，可能正在维护",429:"公开展柜请求过于频繁"}[response.status] || "公开展柜请求失败";
+          throw problem(reason+"（HTTP "+response.status+"），请稍后重试；旧缓存已保留。该状态独立于米游社账号接口。");
+        }
         const data=await response.json(); const raw=data.PlayerInfo?.ShowcaseDetail?.AvatarList;
         if (!Array.isArray(raw)) throw problem("公开展柜数据缺失，旧缓存已保留。");
         avatars=raw.filter(row=>!row.IsHidden).map(normalizeEnkaAvatar); ttl=Number(data.ttl)||60;

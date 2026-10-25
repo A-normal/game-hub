@@ -45,6 +45,7 @@ function harness(t, options = {}) {
   let clock = 0;
   let pollCount = 0;
   const baseFetch = async (url, init) => {
+    if (url.includes("/device-fp/api/getFp")) return api({code:200,device_fp:"123456789abcd"});
     if (url.includes("createQRLogin")) return api({ url: "https://user.mihoyo.com/qr?ticket=test-ticket", ticket: "test-ticket" });
     if (url.includes("queryQRLoginStatus")) {
       const statuses = options.statuses || ["Scanned", "Confirmed"];
@@ -98,6 +99,65 @@ function harness(t, options = {}) {
 }
 
 test("ZZZ QR login: real event identity, credentials, transactions and lifecycle", async t => {
+  await t.test("late QR completion cannot overwrite a concurrent device import or undo unbind",async t=>{
+    for(const mutation of ["device","unbind"]) {
+      let change=false;
+      const h=harness(t,{fetch:(url,init,base)=>{
+        if(change && url.includes("getUserGameRolesByCookie")) {
+          if(mutation==="unbind")h.vault.unbindUser(USER,"mihoyo",ACCOUNT);
+          else h.vault.saveCredential("mihoyo",ACCOUNT,{ck:"new-cookie"},{device_id:"new-device",device_fp:"0123456789abc"});
+        }
+        return base(url,init);
+      }});
+      await h.run();change=true;await h.run();
+      const current=h.vault.getUserCredential(USER,"mihoyo",ACCOUNT);
+      if(mutation==="unbind")assert.equal(current,null);
+      else {assert.equal(current.device.device_id,"new-device");assert.equal(current.cookies.ck,"new-cookie");}
+      assert.match(h.replies.at(-1),/已变化/);
+    }
+  });
+  await t.test("re-scan preserves imported Android profile for exchange, roles and missing-FP renewal",async t=>{
+    const mobile={deviceName:"test",deviceBoard:"board",deviceModel:"Test Model",oaid:"private-oaid",androidVersion:"15",deviceFingerprint:"Test/product/device:15/BUILD/123:user/release-keys",deviceProduct:"product"};
+    const h=harness(t);await h.run();const first=h.vault.getActiveRole(USER,"zzz");
+    for(const fp of ["0123456789abc",undefined]) {
+      h.vault.saveCredential("mihoyo",ACCOUNT,first.cookies,{device_id:"android-device",...(fp?{device_fp:fp}:{}),device_android:mobile});
+      await h.run();
+      const current=h.vault.getActiveRole(USER,"zzz");assert.deepEqual(current.device.device_android,mobile);assert.equal(current.device.device_id,"android-device");
+      for(const path of ["getCookieAccountInfoBySToken","getUserGameRolesByCookie"]) {
+        const headers=h.requests.filter(r=>r.url.includes(path)).at(-1).init.headers;
+        assert.equal(headers["x-rpc-device_id"],"android-device");assert.equal(headers["x-rpc-device_model"],mobile.deviceModel);assert.match(headers["User-Agent"],/Android 15/);
+      }
+      if(!fp)assert.equal(JSON.parse(h.requests.filter(r=>r.url.includes("/device-fp/")).at(-1).init.body).platform,"2");
+    }
+    assert.ok(!h.logs.join("\n").includes(mobile.oaid));
+  });
+  await t.test("failed device issuance cannot masquerade as a random registered fingerprint",async t=>{
+    const h=harness(t,{fetch:(url,init,base)=>url.includes("/device-fp/")?api({code:403,device_fp:"123456789abcd"}):base(url,init)});
+    await h.run();h.assertEmpty();assert.equal(h.requests.length,1);assert.ok(!h.requests.some(row=>row.url.includes("createQRLogin")));
+  });
+  await t.test("explicit device rebuild authenticates and persists the same officially issued environment",async t=>{
+    const h=harness(t);await h.run();const first=h.vault.getActiveRole(USER,"zzz");
+    h.vault.saveCredential("mihoyo",ACCOUNT,first.cookies,{device_id:"legacy-device",device_fp:"fake-legacy-fp"});
+    await h.handler({event:h.event("%扫码 重建设备"),matchedToken:"扫码",args:["重建设备"],vault:h.vault});
+    const role=h.vault.getActiveRole(USER,"zzz");assert.notEqual(role.device.device_id,"legacy-device");assert.equal(role.device.device_fp_source,"official-web");
+    const qr=h.requests.filter(row=>row.url.includes("createQRLogin")).at(-1);assert.equal(qr.init.headers["x-rpc-device_id"],role.device.device_id);assert.equal(qr.init.headers["x-rpc-device_fp"],role.device.device_fp);
+  });
+  await t.test("group login never creates or exposes an authorization QR",async t=>{
+    const h=harness(t);const event={...h.event("%扫码"),isGroup:true};
+    assert.equal((await h.handler({event,args:[],vault:h.vault})).status,"DENIED");
+    assert.equal(h.requests.length,0);h.assertEmpty();
+  });
+  await t.test("device reuse follows confirmed account even when another account is active",async t=>{
+    const h=harness(t);
+    h.vault.saveAccountBinding({unifiedUserId:USER,platform:"qq-napcat",originalId:"12345",providerId:"mihoyo",accountKey:"20002",gameId:"zzz",cookies:{ck:"cookie_token=other"},device:{device_id:"other-device",device_fp:"other-fp"},roles:[{uid:"90000000",region:"prod_gf_cn"}],activeUid:"90000000"});
+    await h.run();
+    const first=h.vault.getActiveRole(USER,"zzz");assert.notEqual(first.device.device_id,"other-device");assert.notEqual(first.device.device_fp,"other-fp");
+    h.vault.saveCredential("mihoyo",ACCOUNT,first.cookies,{device_id:"this-account-device",device_fp:"0123456789abc"});
+    h.vault.setActiveRole(USER,"zzz","90000000");await h.run();
+    assert.equal(h.vault.getActiveRole(USER,"zzz").device.device_id,"this-account-device");
+    const exchanges=h.requests.filter(row=>row.url.includes("getCookieAccountInfoBySToken"));
+    assert.equal(exchanges.at(-1).init.headers["x-rpc-device_id"],"this-account-device");
+  });
   await t.test("shaped event -> dispatcher -> confirmed login -> Vault -> authenticated follow-up", async t => {
     const h = harness(t);
     const provider = new MihoyoCommunityProvider();
@@ -127,9 +187,10 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     assert.equal(new URL(exchange.url).searchParams.get("stoken"), "v2_real_stoken==");
     assert.equal(exchange.init.headers["x-rpc-device_id"], role.device.device_id);
     assert.ok(exchange.init.headers.DS);
-    assert.ok(h.requests[0].url.includes("/app/"), "keep the proven app login mode");
+    assert.ok(h.requests.find(request=>request.url.includes("createQRLogin")).url.includes("/app/"), "keep the proven app login mode");
     assert.ok(h.requests.filter(request => request.url.includes("QRLogin")).every(request =>
       request.init.headers["x-rpc-device_id"] === role.device.device_id));
+    assert.ok(h.requests.every(request=>request.init.redirect==="error"),"authenticated login requests must not forward credentials through redirects");
     t.mock.method(globalThis, "fetch", h.fetchImpl);
     await dispatcher.dispatch(h.event("%便签"));
     const noteRequest = h.requests.find(request => request.url.includes("/api/zzz/note"));
@@ -153,8 +214,8 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
       ] }
     });
     await h.run("%扫码 web");
-    assert.ok(h.requests[0].url.includes("/web/"));
-    assert.equal(h.requests[0].init.headers["x-rpc-app_id"], "bll8iq97cem8");
+    assert.ok(h.requests.find(request=>request.url.includes("createQRLogin")).url.includes("/web/"));
+    assert.equal(h.requests.find(request=>request.url.includes("createQRLogin")).init.headers["x-rpc-app_id"], "bll8iq97cem8");
     assert.ok(h.vault.getActiveRole(USER, "zzz").cookies.ck.includes("cookie_token_v2=v2_cookie=="));
     assert.ok(h.vault.getActiveRole(USER, "zzz").cookies.ck.includes("ltoken_v2=distinct_ltoken=="));
     assert.ok(!h.requests.some(request => request.url.includes("getCookieAccountInfoBySToken")));
@@ -248,7 +309,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     const h = harness(t, { reply: async () => ({ success: false, error: "send failed" }) });
     await h.run();
     h.assertEmpty();
-    assert.equal(h.requests.length, 1);
+    assert.equal(h.requests.length, 2);
     assert.ok(h.replies.at(-1).includes("二维码发送失败"));
   });
 
@@ -256,7 +317,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     const h = harness(t, { handler: { encodeQr: async () => { throw new Error("encoding failed"); } } });
     await h.run();
     h.assertEmpty();
-    assert.equal(h.requests.length, 1);
+    assert.equal(h.requests.length, 2);
     await h.run("%扫码终止");
     assert.ok(h.replies.at(-1).includes("没有正在进行"));
   });
@@ -275,7 +336,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     const h = harness(t, { statuses: ["Created"], handler: { loginTimeoutMs: 20, pollIntervalMs: 5 } });
     await h.run();
     h.assertEmpty();
-    assert.ok(h.requests.length <= 5);
+    assert.ok(h.requests.length <= 6);
     assert.ok(h.replies.at(-1).includes("超时"));
   });
 
@@ -318,7 +379,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     assert.ok(h.replies.at(-1).includes("没有正在进行"));
   });
 
-  for (const stage of ["createQRLogin", "queryQRLoginStatus", "getCookieAccountInfoBySToken", "getUserGameRolesByCookie"]) {
+  for (const stage of ["/device-fp/api/getFp", "createQRLogin", "queryQRLoginStatus", "getCookieAccountInfoBySToken", "getUserGameRolesByCookie"]) {
     await t.test("cancel while " + stage + " is in flight prevents late writes", async t => {
       const started = deferred();
       const pending = deferred();
@@ -387,6 +448,23 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     assert.ok(h.replies.at(-1).includes("保存登录绑定失败"));
   });
 
+  await t.test("re-scan keeps the bound device environment and the manually selected main role", async t => {
+    const h = harness(t);
+    await h.run("%扫码");
+    const first = h.vault.getActiveRole(USER, "zzz");
+    assert.equal(first.uid, "17708598", "first login picks the highest level role");
+    // 用户随后手填了真机设备，并把主角色改成 10009999
+    h.vault.saveCredential("mihoyo", first.accountKey, first.cookies, { device_id: "real-device-0001", device_fp: "0123456789abc" });
+    h.vault.setActiveRole(USER, "zzz", "10009999");
+    h.replies.length = 0;
+    await h.run("%扫码");
+    const second = h.vault.getActiveRole(USER, "zzz");
+    assert.equal(second.uid, "10009999", "manual main role must survive re-login");
+    assert.equal(second.device.device_id, "real-device-0001", "bound device id must survive re-login");
+    assert.equal(second.device.device_fp, "0123456789abc", "real device fingerprint must survive re-login");
+    assert.ok(h.replies.at(-1).includes("已保留原先的主角色"));
+  });
+
   await t.test("refresh failure restores previous Cookie and selected role after nested activation", t => {
     const h = harness(t);
     const binding = {
@@ -435,7 +513,10 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
       vault.saveCredential("mihoyo", ACCOUNT, "ltuid=10001; cookie_token=persisted==");
       vault.bindUser(USER, "qq-napcat", "12345", "mihoyo", ACCOUNT);
       vault.saveRoles("mihoyo", ACCOUNT, "zzz", [{ uid: "17708598", region: "prod_gf_cn" }]);
-      assert.doesNotThrow(() => JSON.parse(vault.db.prepare("SELECT cookies_json FROM community_credentials").get().cookies_json));
+      // 凭据密文落库：不得以明文保存，且必须经公开读取路径还原。
+      const stored = vault.db.prepare("SELECT cookies_json FROM community_credentials").get().cookies_json;
+      assert.ok(stored.startsWith("enc:v1:") || (() => { try { JSON.parse(stored); return true; } catch { return false; } })(), "stored credentials must be an encrypted envelope or JSON");
+      assert.ok(!stored.includes("cookie_token=persisted=="), "plaintext credentials must not be stored");
       vault.close();
       vault = new IdentityVault(dbPath);
       assert.equal(vault.getActiveRole(USER, "zzz").cookies.ck, "ltuid=10001; cookie_token=persisted==");

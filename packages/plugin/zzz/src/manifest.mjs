@@ -7,23 +7,31 @@ import { handleRecord,handleMonthly,handlePools } from "./handlers/records.mjs";
 import { handleSign } from "./handlers/sign.mjs";
 import { handleGacha } from "./handlers/gacha.mjs";
 import { handleHelp } from "./handlers/help.mjs";
-import { handleAlias,handleTasks,handleRanking,handleCalculationSettings } from "./handlers/settings.mjs";
+import { handleAlias,handleTasks,handleRanking,handleCalculationSettings,handleMaintenance } from "./handlers/settings.mjs";
 import { handleContent } from "./handlers/content.mjs";
-const route=(id,tokens,description,action,extra={})=>({id,tokens,description,action,...extra});
+const route=(id,tokens,description,action,extra={})=>({id,tokens,description,action:async ctx=>{
+  try {return await action(ctx);} catch(error) {
+    if(error?.retcode===10041) error.publicMessage = (error.publicMessage || "米游社设备或安全校验未通过（10041）。") + "\n扫码登录与常用设备绑定均保留。Android 用户可在私聊使用「"+ctx.commands.format({routeId:"device",args:["<设备JSON>"]})+"」绑定常用手机信息；已有设备信息会在正常重新扫码时保留，请勿反复重建设备。这些操作不能保证解除所有官方校验。";
+    throw error;
+  }
+},...extra});
 export const ZZZPluginManifest={
   id:"zzz",kind:"plugin",contractVersion:1,gameId:"zzz",name:"绝区零",
   defaultNamespace:{prefix:"*",aliases:["zzz","绝区零"],priority:100},
   providers:[{id:"mihoyo",capabilities:["game-record","account","sign","gacha"]}],
   routes:[
     route("help",["帮助","help","菜单"],"查看纯文本命令",handleHelp),
-    route("loginQr",["扫码登录","扫码绑定","扫码","二维码登录","二维码绑定","二维码"],"米游社扫码登录 [web]",handleLoginQr),
+    route("loginQr",["扫码登录","扫码绑定","扫码","二维码登录","二维码绑定","二维码"],"米游社扫码登录 [web] [重建设备]",handleLoginQr),
     route("loginCancel",["扫码终止","取消扫码"],"取消当前登录",handleLoginQr),
     route("bind",["绑定","添加账号","绑定国际服"],"私聊手动绑定 Cookie；无参数扫码",handleBind),
     route("unbind",["解绑"],"私聊解除当前社区账号绑定",handleAccount),
     route("selectRole",["选角色","切换角色","设置角色"],"选择主角色 <UID>",handleSelectRole),
     route("listRoles",["角色列表","我的角色","角色清单"],"列出绑定的角色",handleListRoles),
-    route("device",["绑定设备","设备配置","删除设备"],"私聊设置设备 ID [指纹]",handleAccount),
+    route("device",["绑定设备","设备配置","删除设备"],"私聊设置设备 ID [指纹] 或 Android 设备 JSON",handleAccount),
+    route("deviceDefault",["默认设备","重置设备","更新设备指纹"],"补全官方签发的设备指纹 [刷新指纹]",handleAccount),
     route("aliases",["设置别名","角色别名","删除别名"],"设置个人角色别名 [别名 完整名称/ID]",handleAlias),
+    route("cooldown",["面板冷却","刷新冷却"],"查询或设置个人面板刷新冷却时间 [秒数]",handleMaintenance),
+    route("cacheClean",["清理缓存","清除缓存","刷新资源"],"清理本地指定业务或全部缓存 [面板|卡池|全部]",handleMaintenance),
     route("note",["便签","体力","电量"],"查询实时便签",handleNote),
     route("card",["资料","绳网资料","名片"],"查询绳网资料",handleRecord),
     route("avatars",["代理人","角色图鉴"],"查询代理人列表 [页码]",handleRecord),
@@ -45,8 +53,7 @@ export const ZZZPluginManifest={
       ["deadly",["危局强袭战","危局"],"危局强袭战"],
       ["holo",["全息拟境","拟境"],"全息拟境"],
       ["tower",["鏖战试炼","爬塔","模拟鏖战试炼"],"模拟鏖战试炼"],
-      ["void",["临界推演","临界"],"临界推演"],
-      ["voidOverview",["临界总览"],"临界总览"],
+      ["void",["临界推演","临界","临界总览"],"临界推演"],
       ["hollow",["零号空洞","空洞"],"零号空洞"],
       ["hollowDetail",["枯萎之都"],"空洞挑战"],
       ["hollow2",["迷失之地","零号空洞二期"],"迷失之地"],
@@ -63,7 +70,7 @@ export const ZZZPluginManifest={
     route("gachaUpdate",["更新抽卡","更新调频","刷新抽卡","记录链接"],"自动更新调频 [私聊官方链接]",handleGacha),
     route("gachaRecords",["抽卡记录","调频记录"],"分池查看出金和垫抽 [明细 页码]",handleGacha),
     route("gachaAnalysis",["抽卡分析"],"调频统计分析",handleGacha),
-    route("gachaImport",["导入抽卡"],"辅助导入 UIGF/SRGF JSON",handleGacha),
+    route("gachaImport",["导入抽卡"],"聊天内不导入；请在服务器执行导入工具",handleGacha),
     route("gachaExport",["导出抽卡"],"私聊导出 UIGF JSON",handleGacha),
     route("gachaLink",[],"私聊官方调频链接",handleGacha,{stage:"text",match:event=>/^https:\/\/\S*[?&](?:authkey|authkey_ver)=/i.test(event.cleanText || "")}),
     route("sign",["签到","每日签到","打卡"],"手动签到",handleSign),

@@ -8,6 +8,7 @@ export class ZzzStore {
       CREATE TABLE IF NOT EXISTS zzz_jobs (id TEXT PRIMARY KEY, owner TEXT NOT NULL, uid TEXT NOT NULL, region TEXT NOT NULL, kind TEXT NOT NULL, target TEXT NOT NULL, settings TEXT NOT NULL, enabled INTEGER NOT NULL, next_run INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS zzz_job_runs (job_id TEXT, period TEXT, state TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(job_id,period));
       CREATE TABLE IF NOT EXISTS zzz_rankings (group_key TEXT, owner TEXT, uid TEXT, region TEXT, category TEXT, score REAL NOT NULL, nickname TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(group_key,owner,uid,region,category));
+      CREATE TABLE IF NOT EXISTS zzz_rankings_v2 (group_key TEXT, owner TEXT, uid TEXT, region TEXT, category TEXT, period TEXT NOT NULL, expires_at INTEGER NOT NULL, score REAL NOT NULL, nickname TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(group_key,owner,uid,region,category,period));
     `);
   }
   scope(owner, role) { return [owner, String(role.uid), role.region || "prod_gf_cn"]; }
@@ -41,9 +42,29 @@ export class ZzzStore {
   jobs(owner) { return this.db.prepare("SELECT * FROM zzz_jobs" + (owner ? " WHERE owner=?" : "")).all(...(owner ? [owner] : [])).map(row => ({ ...row, enabled: Boolean(row.enabled), target: JSON.parse(row.target), settings: JSON.parse(row.settings), nextRun: row.next_run })); }
   runState(id, period) { return this.db.prepare("SELECT state FROM zzz_job_runs WHERE job_id=? AND period=?").get(id,period)?.state; }
   markRun(id, period, state) { this.db.prepare("INSERT INTO zzz_job_runs VALUES(?,?,?,?) ON CONFLICT(job_id,period) DO UPDATE SET state=excluded.state,updated_at=excluded.updated_at").run(id,period,state,this.now()); }
-  publish(group, owner, role, category, score) { if (!Number.isFinite(score)) throw new TypeError("Invalid ranking score"); this.db.prepare("INSERT INTO zzz_rankings VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(group_key,owner,uid,region,category) DO UPDATE SET score=excluded.score,nickname=excluded.nickname,updated_at=excluded.updated_at").run(group,owner,role.uid,role.region,category,score,role.nickname,this.now()); }
-  rankings(group, category) { return this.db.prepare("SELECT owner,uid,nickname,score FROM zzz_rankings WHERE group_key=? AND category=? ORDER BY score DESC LIMIT 50").all(group,category).filter(row => !this.option(row.owner,"rankHidden",false)); }
-  clearRanking(group, owner) { return this.db.prepare("DELETE FROM zzz_rankings WHERE group_key=?" + (owner ? " AND owner=?" : "")).run(group,...(owner ? [owner] : [])); }
+  publish(group, owner, role, category, score, {period, expiresAt} = {}) {
+    if (!Number.isFinite(score) || !period || !Number.isSafeInteger(expiresAt) || expiresAt <= this.now()) throw new TypeError("Invalid ranking score or period");
+    this.db.prepare("INSERT INTO zzz_rankings_v2 VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(group_key,owner,uid,region,category,period) DO UPDATE SET score=excluded.score,nickname=excluded.nickname,expires_at=excluded.expires_at,updated_at=excluded.updated_at").run(group,owner,role.uid,role.region,category,period,expiresAt,score,role.nickname,this.now());
+  }
+  rankings(group, category) {
+    return this.db.prepare(`SELECT owner,uid,region,nickname,score,period,expires_at FROM zzz_rankings_v2 r
+      WHERE group_key=? AND category=? AND expires_at>? AND expires_at=(
+        SELECT MAX(expires_at) FROM zzz_rankings_v2 n WHERE n.group_key=r.group_key AND n.category=r.category AND n.region=r.region)
+      ORDER BY region,period,score DESC`).all(group,category,this.now()).filter(row => !this.option(row.owner,"rankHidden",false)).slice(0,50);
+  }
+  clearRanking(group, owner) {
+    return this.vault._transaction(() => {
+      for (const table of ["zzz_rankings", "zzz_rankings_v2"]) this.db.prepare("DELETE FROM "+table+" WHERE group_key=?" + (owner ? " AND owner=?" : "")).run(group,...(owner ? [owner] : []));
+    });
+  }
+  clearCache(owner, role, kind) {
+    if (kind) {
+      return Number(this.db.prepare("DELETE FROM zzz_cache WHERE owner=? AND uid=? AND region=? AND kind=?")
+        .run(...this.scope(owner, role), kind).changes);
+    }
+    return Number(this.db.prepare("DELETE FROM zzz_cache WHERE owner=? AND uid=? AND region=?")
+      .run(...this.scope(owner, role)).changes);
+  }
 }
 const stores = new WeakMap();
 export function storeFor(ctx) {
