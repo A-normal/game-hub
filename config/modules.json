@@ -27,6 +27,11 @@
         "path": { "$env": "GAMEHUB_PATH", "default": "/onebot/v11/ws" },
         "accessToken": { "$env": "GAMEHUB_TOKEN", "required": true }
       }
+    },
+    { "kind": "provider", "id": "llm", "entry": "packages/provider/llm/src/index.mjs" },
+    {
+      "kind": "plugin", "id": "chat-ai", "entry": "packages/plugin/chat-ai/src/index.mjs",
+      "namespace": { "prefix": "!", "aliases": ["！"], "priority": 50 }
     }
   ]
 }

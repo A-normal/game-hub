@@ -1,0 +1,17 @@
+{
+  "name": "@game-hub/plugin-chat-ai",
+  "version": "1.0.0",
+  "description": "Game-Hub chat AI plugin: non-command message intake, personas, session context",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./manifest": "./src/manifest.mjs",
+    "./session": "./src/session.mjs",
+    "./store": "./src/store.mjs",
+    "./character": "./src/character.mjs",
+    "./prompt": "./src/prompt.mjs",
+    "./log": "./src/log.mjs"
+  },
+  "private": true
+}

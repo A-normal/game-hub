@@ -188,6 +188,8 @@ importers:
 
   packages/core: {}
 
+  packages/plugin/chat-ai: {}
+
   packages/plugin/zzz:
     dependencies:
       '@game-hub/core':
@@ -199,6 +201,8 @@ importers:
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4
+
+  packages/provider/llm: {}
 
   packages/provider/mihoyo:
     dependencies:

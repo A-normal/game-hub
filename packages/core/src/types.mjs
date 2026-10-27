@@ -1,7 +1,14 @@
 /**
  * Shared module contracts. Module IDs and namespaces are separate.
- * @typedef {{success:boolean,messageId?:string,error?:string}} IDeliveryResult
+ * @typedef {{success:boolean,messageId?:string,messageIds?:string[],partial?:boolean,partsDelivered?:number,error?:string}} IDeliveryResult
  * @typedef {Object} IEventEnvelope
+ * @property {'message'|'notice'} [eventType]
+ * @property {string} [noticeType]
+ * @property {string} [noticeSubtype]
+ * @property {string} [targetUserId]
+ * @property {string} [recalledMessageId] Platform message ID referenced by a recall notice.
+ * @property {Array<{id:string,name:string,size?:number,type:'file'|'image',readBytes?:(limits:{maxBytes:number})=>Promise<Buffer>}>} [attachments] Lazy, bounded channel-owned reads; no bridge-local paths.
+ * @property {string[]} [channelCapabilities]
  * @property {string} eventId
  * @property {string} messageId
  * @property {string} platform
@@ -16,6 +23,8 @@
  * @property {{id:string,name?:string,role?:string}} sender
  * @property {Array<{url?:string,file?:string}>} [images]
  * @property {{id:string,text?:string,images?:Array<{url?:string,file?:string}>}} [replyMessage]
+ * @property {Array<{id:string}>} mentions 本条消息中的 @ 目标；`all` 原样保留，没有 at 段时为空数组
+ * @property {boolean} mentionedBot 是否 @ 了当前机器人（mentions 中命中 self_id），无 at 段时为 false
  * @property {(content:string|Object,options?:Object)=>Promise<IDeliveryResult>} reply
  */
 /**
@@ -57,11 +66,11 @@
  * @property {string} id Stable route ID.
  * @property {string[]} [tokens] Semantic command tokens without namespace.
  * @property {string[]} [suffixTokens] Dynamic leading arguments, such as a character name.
- * @property {'command'|'text'|'fallback'} [stage]
+ * @property {'command'|'text'|'observer'|'fallback'|'event'|'observer'} [stage] `observer` 在 text 之后、fallback 之前执行，返回值被忽略，route.admin 不参与鉴权
  * @property {boolean} [exact]
  * @property {boolean} [admin]
  * @property {string} [provider] Selected provider ID for this route.
- * @property {(event:IEventEnvelope)=>boolean} [match] Text/fallback eligibility predicate.
+ * @property {(event:IEventEnvelope)=>boolean} [match] Text/fallback/observer eligibility predicate.
  * @property {(ctx:IGameContext)=>Promise<RouteResult|boolean|void>|RouteResult|boolean|void} action
  * @property {string} [description]
  */

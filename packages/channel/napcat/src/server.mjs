@@ -10,6 +10,18 @@ import http from "node:http";
 import { WebSocketServer } from "ws";
 import { InboundShaper, logger } from "@game-hub/core";
 import { OneBotRpcManager } from "./rpc.mjs";
+import {deliver,readAttachment} from "./files.mjs";
+
+export function encodeMessage(content) {
+  if (content && Array.isArray(content.segments)) {
+    return content.segments.map(segment => {
+      if (segment.type === "text") return {type:"text",data:{text:String(segment.text || "")}};
+      if (segment.type === "image" && typeof segment.file === "string" && /^(https:\/\/|base64:\/\/)/.test(segment.file)) return {type:"image",data:{file:segment.file}};
+      throw Object.assign(new Error("Unsupported message segment"),{code:"DELIVERY_UNSUPPORTED"});
+    });
+  }
+  return typeof content === "string" ? content : String(content?.content || "");
+}
 
 export class NapCatGateway {
   /**
@@ -50,7 +62,7 @@ export class NapCatGateway {
       });
 
       this.wss = new WebSocketServer({
-        noServer: true
+        noServer: true,maxPayload:8*1024*1024
       });
 
       this.server.on("upgrade", (req, socket, head) => {
@@ -103,7 +115,7 @@ export class NapCatGateway {
 
           // 1. 若为 API 响应包，交由 RPC 管理器根据 echo 唤醒等待的 Promise (解决 P1-07)
           if (payload.echo) {
-            this.rpc.handleIncoming(payload);
+            this.rpc.handleIncoming(payload,ws);
             return;
           }
 
@@ -116,8 +128,8 @@ export class NapCatGateway {
           }
 
           // 3. 聊天消息事件处理
-          if (payload.post_type === "message") {
-            const isGroup = payload.message_type === "group";
+          if (payload.post_type === "message" || payload.post_type === "notice") {
+            const isGroup = Boolean(payload.group_id || payload.message_type === "group");
             const targetDesc = isGroup ? `[群聊 ${payload.group_id}]` : `[私聊]`;
             const senderDesc = `${payload.user_id} (${payload.sender?.nickname || payload.sender?.card || "匿名"})`;
 
@@ -125,44 +137,12 @@ export class NapCatGateway {
 
             // 定义可靠回复闭包：通过带 echo 的 OneBot RPC 发送并等待真实交付确认 (解决 P1-07)
             const sendFunction = async (target, content, replyOpts = {}) => {
-              const msgType = payload.message_type || (target.isGroup ? "group" : "private");
-              const message = typeof content === "string" ? content : (content.content || "");
-
-              const params = {
-                message_type: msgType,
-                user_id: payload.user_id,
-                message: message
-              };
-
-              if (msgType === "group" && payload.group_id) {
-                params.group_id = payload.group_id;
-              }
-
-              if (replyOpts.quote && payload.message_id) {
-                params.message = `[CQ:reply,id=${payload.message_id}]${params.message}`;
-              }
-
-              const startSend = Date.now();
-              try {
-                const apiRes = await this.rpc.callApi(ws, "send_msg", params);
-                const cost = Date.now() - startSend;
-                logger.info("Gateway:Egress", `回复已送达 -> ${targetDesc} (耗时: ${cost}ms)`);
-                return {
-                  success: true,
-                  messageId: String(apiRes.data?.message_id || "")
-                };
-              } catch (err) {
-                const cost = Date.now() - startSend;
-                logger.error("Gateway:Egress", `回复送达失败 -> ${targetDesc} (耗时: ${cost}ms): ${err.message}`);
-                return {
-                  success: false,
-                  error: err.message
-                };
-              }
+              return deliver(this.rpc,ws,{...target,userId:String(payload.user_id),groupId:payload.group_id},content,replyOpts);
             };
 
             // 通过 InboundShaper 归一化为 EventEnvelope
-            const eventEnvelope = InboundShaper.shape(payload, { sendFunction });
+            const eventEnvelope = InboundShaper.shape(payload, { sendFunction,readAttachment:(file,limits)=>readAttachment(this.rpc,ws,file,limits) });
+            eventEnvelope.channelCapabilities=["text","image","file","attachment-read"];
 
             // 注入微内核调度器
             try {
@@ -175,7 +155,7 @@ export class NapCatGateway {
 
         ws.on("close", (code, reason) => {
           this.activeSockets.delete(ws);
-          this.rpc.clear("客户端已断开连接");
+          this.rpc.clear("客户端已断开连接",ws);
           logger.warn("Gateway", `OneBot 客户端已断开 (Code: ${code}, 剩余活跃数: ${this.activeSockets.size})`);
         });
 
@@ -229,9 +209,7 @@ export class NapCatGateway {
   async send(target, message) {
     const sockets=[...this.activeSockets].filter(ws=>ws.readyState===1 && (!target.botId || ws.gameHubSelfId===String(target.botId)));
     if (sockets.length!==1) throw Object.assign(new Error("No unambiguous OneBot connection"),{code:"DELIVERY_UNAVAILABLE"});
-    const params={message_type:target.isGroup?"group":"private",message:[{type:"text",data:{text:String(message)}}],...(target.isGroup?{group_id:target.groupId}:{user_id:target.userId})};
-    const result=await this.rpc.callApi(sockets[0],"send_msg",params);
-    return {success:true,messageId:String(result.data?.message_id || "")};
+    return deliver(this.rpc,sockets[0],target,message);
   }
 }
 

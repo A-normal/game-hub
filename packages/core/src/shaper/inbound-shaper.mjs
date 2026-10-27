@@ -38,14 +38,16 @@ export class InboundShaper {
     let platform = Platforms.MOCK;
     let rawUserId = String(rawEvent.user_id || rawEvent.from?.id || rawEvent.sender?.id || "unknown");
     let rawText = rawEvent.message_text || rawEvent.raw_message || rawEvent.text || rawEvent.msg || (Array.isArray(rawEvent.message) ? rawEvent.message.filter(seg=>seg.type==="text").map(seg=>seg.data?.text || "").join("") : typeof rawEvent.message==="string" ? rawEvent.message : "");
-    let cleanText = rawText.trim();
+    let cleanText = (Array.isArray(rawEvent.message)
+      ? rawEvent.message.filter(seg => seg?.type === "text").map(seg => seg.data?.text || "").join("")
+      : rawText.replace(/\[CQ:[^\]]*\]/gi, "")).trim();
     let isGroup = Boolean(rawEvent.group_id || rawEvent.chat?.type === "group" || rawEvent.message_type === "group");
     let groupId = rawEvent.group_id ? String(rawEvent.group_id) : (rawEvent.chat?.id ? String(rawEvent.chat.id) : undefined);
-    let messageId = String(rawEvent.message_id || rawEvent.msg_id || `mock-${Date.now()}`);
+    let messageId = String(rawEvent.message_id || rawEvent.msg_id || (rawEvent.post_type === "notice" ? `notice:${rawEvent.self_id}:${rawEvent.notice_type}:${rawEvent.sub_type}:${rawEvent.group_id}:${rawEvent.user_id}:${rawEvent.target_id}:${rawEvent.time}` : `mock-${Date.now()}`));
     let timestamp = rawEvent.time || rawEvent.date || Math.floor(Date.now() / 1000);
 
     // 平台识别与 @Bot 剥离
-    if (rawEvent.post_type === "message" || rawEvent.message_type) {
+    if (["message","notice","request"].includes(rawEvent.post_type) || rawEvent.message_type) {
       platform = Platforms.NAPCAT;
     } else if (rawEvent.update_id || rawEvent.chat) {
       platform = Platforms.TELEGRAM;
@@ -58,10 +60,27 @@ export class InboundShaper {
 
     // 提取图片附件
     const images = [];
+    const attachments = [];
+    const addAttachment=(file,type="file")=>{
+      if(!file)return;
+      const attachment={id:String(file.id || file.file_id || file.file || ""),name:String(file.name || file.file_name || ""),size:Number(file.size ?? file.file_size) || undefined,type};
+      if(typeof options.readAttachment==="function")attachment.readBytes=limits=>options.readAttachment(attachment,limits);
+      attachments.push(attachment);
+    };
+    if(["offline_file","group_upload"].includes(rawEvent.notice_type))addAttachment(rawEvent.file);
+    if(!Array.isArray(rawEvent.message)) {
+      const unescape=value=>value.replace(/&#44;/g,",").replace(/&#91;/g,"[").replace(/&#93;/g,"]").replace(/&amp;/g,"&");
+      for(const segment of rawText.matchAll(/\[CQ:(file|image),([^\]]+)\]/gi)) {
+        const fields=Object.fromEntries(segment[2].split(",").map(item=>{const index=item.indexOf("=");return index<0?[]:[item.slice(0,index),unescape(item.slice(index+1))];}).filter(item=>item.length===2));
+        addAttachment(fields,segment[1].toLowerCase());
+      }
+    }
     if (Array.isArray(rawEvent.message)) {
       for (const seg of rawEvent.message) {
+        if(seg?.type==="file")addAttachment(seg.data);
         if (seg.type === "image" && seg.data) {
           images.push({ url: seg.data.url || seg.data.file, file: seg.data.file });
+          addAttachment(seg.data,"image");
         }
       }
     }
@@ -123,8 +142,24 @@ export class InboundShaper {
       replyMessage = { id: replyId };
     }
 
+    // 提取 @ 提及：只认 message 段中的 at 段；`all` 原样保留，其余统一字符串化。
+    const mentions = [];
+    if (Array.isArray(rawEvent.message)) {
+      for (const seg of rawEvent.message) {
+        if (seg?.type !== "at") continue;
+        const qq = seg.data?.qq;
+        if (qq === undefined || qq === null || qq === "") continue;
+        mentions.push({ id: String(qq) });
+      }
+    }
+    if (!Array.isArray(rawEvent.message)) {
+      for (const item of rawText.matchAll(/\[CQ:at,qq=([^,\]]+)[^\]]*\]/gi)) mentions.push({id: item[1]});
+    }
+    const selfId = rawEvent.self_id === undefined || rawEvent.self_id === null ? null : String(rawEvent.self_id);
+    const mentionedBot = selfId !== null && mentions.some(item => item.id === selfId);
+
     const unifiedUserId = `${platform}:${rawUserId}`;
-    const eventId = crypto.createHash("md5").update(`${platform}:${messageId}:${timestamp}`).digest("hex");
+    const eventId = crypto.createHash("md5").update(`${platform}:${rawEvent.self_id || ""}:${rawEvent.post_type || "message"}:${rawEvent.notice_type || ""}:${messageId}:${timestamp}`).digest("hex");
 
     const sender = {
       id: rawUserId,
@@ -146,6 +181,11 @@ export class InboundShaper {
 
     return {
       eventId,
+      eventType: rawEvent.post_type === "notice" ? "notice" : "message",
+      noticeType: rawEvent.notice_type || undefined,
+      noticeSubtype: rawEvent.sub_type || undefined,
+      targetUserId: rawEvent.target_id == null ? undefined : String(rawEvent.target_id),
+      recalledMessageId: ["group_recall","friend_recall"].includes(rawEvent.notice_type) && rawEvent.message_id!=null ? String(rawEvent.message_id) : undefined,
       botId: rawEvent.self_id ? String(rawEvent.self_id) : undefined,
       messageId,
       platform,
@@ -157,8 +197,11 @@ export class InboundShaper {
       timestamp,
       sender,
       images: images.length > 0 ? images : undefined,
+      attachments: attachments.length ? attachments : undefined,
       replyMessage,
-      reply
+      reply,
+      mentions,
+      mentionedBot
     };
   }
 }

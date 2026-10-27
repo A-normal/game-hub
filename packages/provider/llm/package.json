@@ -1,0 +1,12 @@
+{
+  "name": "@game-hub/provider-llm",
+  "version": "1.0.0",
+  "description": "OpenAI-compatible chat completion provider for Game-Hub",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./client": "./src/client.mjs"
+  },
+  "private": true
+}

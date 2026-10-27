@@ -2,4 +2,7 @@ node_modules/
 .pnpm-store/
 data/
 *.log
+.env
 tests/_tmp_*
+docx/
+.private/

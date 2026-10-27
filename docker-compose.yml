@@ -19,6 +19,8 @@ services:
       GAMEHUB_PORT: 8080
       GAMEHUB_PATH: /onebot/v11/ws
       GAMEHUB_TOKEN: ${GAMEHUB_TOKEN:-gamehub_secret_token_2026}
+      CHATAI_KEY_MAIN: ${CHATAI_KEY_MAIN:-}
+      CHATAI_ADMIN_TOKEN: ${CHATAI_ADMIN_TOKEN:-}
       GAMEHUB_DB: /app/data/vault.db
     volumes:
       # 持久化统一身份保密库 (vault.db)，优先写入全局 DATA_ROOT，支持相对路径回退
@@ -47,7 +49,8 @@ services:
     volumes:
       # 配置目录与数据目录严格分离：配置归入 CONFIG_ROOT，会话与凭据归入 DATA_ROOT
       - ${CONFIG_ROOT:-./config}/napcat:/app/napcat/config
-      - ${DATA_ROOT:-./data}/napcat:/app/napcat/data
+      - ${DATA_ROOT:-./data}/napcat/data:/app/napcat/data
+      - ${DATA_ROOT:-./data}/napcat/QQ:/app/.config/QQ
     networks:
       - gamehub-net
     depends_on:

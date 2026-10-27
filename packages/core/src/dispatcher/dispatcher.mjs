@@ -258,6 +258,17 @@ export class GameHubDispatcher {
     }
   }
   async dispatch(event) {
+    if (event.eventType && event.eventType !== "message") {
+      for (const plugin of this.plugins.values()) {
+        if (!this.isPluginEnabled(plugin.id)) continue;
+        for (const route of plugin.routes.filter(r=>r.stage === "event")) {
+          if (route.match && !route.match(event)) continue;
+          const output=await this._execute(event,plugin,route,"",[]);
+          if (output.status !== RouteStatus.NOT_MATCHED) return output;
+        }
+      }
+      return result(RouteStatus.NOT_MATCHED);
+    }
     const text = String(event.cleanText || "").trim();
     const shortcuts=[...this.shortcuts].filter(([key,value])=>this.isPluginEnabled(value.pluginId) && (text===key || text.startsWith(key+" "))).sort((a,b)=>b[0].length-a[0].length);
     if(shortcuts.length) {
@@ -286,14 +297,35 @@ export class GameHubDispatcher {
       await event.reply("未识别该命令，请使用已启用插件的帮助命令。");
       return result(RouteStatus.HANDLED);
     }
-    for (const stage of ["text", "fallback"]) {
-      for (const plugin of this.plugins.values()) {
-        if (!this.isPluginEnabled(plugin.id)) continue;
-        for (const route of plugin.routes.filter(item => item.stage === stage)) {
-          if (route.match && !route.match(event)) continue;
-          const output = await this._execute(event, plugin, route, "", []);
-          if (output.status !== RouteStatus.NOT_MATCHED) return output;
+    for (const plugin of this.plugins.values()) {
+      if (!this.isPluginEnabled(plugin.id)) continue;
+      for (const route of plugin.routes.filter(item => item.stage === "text")) {
+        if (route.match && !route.match(event)) continue;
+        const output = await this._execute(event, plugin, route, "", []);
+        if (output.status !== RouteStatus.NOT_MATCHED) return output;
+      }
+    }
+    // 观察器阶段：位于 text 之后、fallback 之前。返回值一律忽略，异常只记脱敏日志；
+    // 既不改变路由结果，也不阻止后续观察器或 fallback，更不向用户回错误提示。
+    // route.admin 在此阶段不参与鉴权，route.match 照常生效。
+    for (const plugin of this.plugins.values()) {
+      if (!this.isPluginEnabled(plugin.id)) continue;
+      for (const route of plugin.routes.filter(item => item.stage === "observer")) {
+        if (route.match && !route.match(event)) continue;
+        try {
+          await route.action(this._context(event, plugin, route, "", []));
+        } catch (error) {
+          const detail = [error?.code || error?.name || "Error", error?.publicMessage || error?.message || ""].filter(Boolean).join(" ");
+          logger.warn("Dispatcher", "观察器失败: " + plugin.id + ":" + route.id + " — " + InboundShaper.sanitizeLogText(detail));
         }
+      }
+    }
+    for (const plugin of this.plugins.values()) {
+      if (!this.isPluginEnabled(plugin.id)) continue;
+      for (const route of plugin.routes.filter(item => item.stage === "fallback")) {
+        if (route.match && !route.match(event)) continue;
+        const output = await this._execute(event, plugin, route, "", []);
+        if (output.status !== RouteStatus.NOT_MATCHED) return output;
       }
     }
     return result(RouteStatus.NOT_MATCHED);

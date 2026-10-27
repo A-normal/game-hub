@@ -15,5 +15,6 @@ export function createModule({ config, dispatcher }) {
   gateway.kind = "channel";
   gateway.contractVersion = 1;
   gateway.platforms = ["qq-napcat"];
+  gateway.capabilities = ["text","image","quote","notice","file","attachment-read"];
   return gateway;
 }
