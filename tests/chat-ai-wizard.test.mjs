@@ -35,180 +35,75 @@ const setup = ({vault, config = {}, now = Date.now} = {}) => {
   return {dispatcher, module, store: module.services.store, replies, dispatch};
 };
 
-test("!模型新增分步向导：4步+确认成功保存，向导输入不入库", async t => {
-  const vault = new IdentityVault(":memory:");
-  t.after(() => vault.close());
-  const {dispatch, store} = setup({vault});
+const connection = (store, id = "service") => store.saveConnection({id,label:id,endpoint:"https://api.example.com/v1",apiKeyEnv:"CHATAI_KEY_MAIN"});
 
-  // 1. 发起向导
-  let out = await dispatch("!模型新增");
-  assert.equal(out.status, "HANDLED");
-  assert.match(out.reply, /第 1\/4 步/);
-
-  // 2. 步骤 1：别名
-  out = await dispatch("main");
-  assert.equal(out.status, "HANDLED");
-  assert.match(out.reply, /第 2\/4 步/);
-
-  // 3. 步骤 2：端点
-  out = await dispatch("https://api.184829.xyz/v1");
-  assert.equal(out.status, "HANDLED");
-  assert.match(out.reply, /第 3\/4 步/);
-
-  // 4. 步骤 3：模型 ID
-  out = await dispatch("gemini-3.8-flash-high");
-  assert.equal(out.status, "HANDLED");
-  assert.match(out.reply, /第 4\/4 步/);
-
-  // 5. 步骤 4：密钥环境变量名
-  out = await dispatch("CHATAI_KEY_MAIN");
-  assert.equal(out.status, "HANDLED");
-  assert.match(out.reply, /配置摘要/);
-  assert.match(out.reply, /main/);
-  assert.match(out.reply, /CHATAI_KEY_\*\*\*/);
-
-  // 6. 确认保存
-  out = await dispatch("确认");
-  assert.equal(out.status, "HANDLED");
-  assert.match(out.reply, /【模型新增成功】/);
-
-  // 验证 store 数据
-  const saved = store.getModel("main");
-  assert.ok(saved);
-  assert.equal(saved.id, "main");
-  assert.equal(saved.endpoint, "https://api.184829.xyz/v1");
-  assert.equal(saved.model, "gemini-3.8-flash-high");
-  assert.equal(saved.apiKeyEnv, "CHATAI_KEY_MAIN");
-
-  // 验证向导输入未被 observer 写入 chat_messages
-  const msgCount = store.countMessages("mock:999:private:mock:admin");
-  assert.equal(msgCount, 0);
+test("模型新增复用已有连接，只询问上游模型和显示名称，输入不进入上下文", async t => {
+  const vault = new IdentityVault(); t.after(()=>vault.close());
+  const {dispatch,store} = setup({vault}); connection(store);
+  assert.match((await dispatch("!模型新增 service")).reply,/模型 ID/);
+  await dispatch("upstream-model");
+  assert.match((await dispatch("日常聊天")).reply,/确认/);
+  await dispatch("确认");
+  const saved=store.listModels()[0];
+  assert.equal(saved.model,"upstream-model"); assert.equal(saved.label,"日常聊天");
+  assert.equal(saved.connectionId,"service"); assert.equal(store.listConnections().length,1);
+  assert.equal(store.countMessages("mock:999:private:mock:admin"),0);
 });
 
-test("向导校验重试、重来与取消", async t => {
-  const vault = new IdentityVault(":memory:");
-  t.after(() => vault.close());
-  const {dispatch, store} = setup({vault});
-
-  await dispatch("!模型新增");
-
-  // 步骤 1 非法别名
-  let out = await dispatch("Bad_Alias!");
-  assert.match(out.reply, /档案别名格式不正确/);
-
-  // 正确别名
-  await dispatch("test1");
-
-  // 步骤 2 非法 URL
-  out = await dispatch("not a url");
-  assert.match(out.reply, /接口地址不合法/);
-
-  // 步骤 2 query 参数拒绝
-  out = await dispatch("https://api.example.com/v1?token=123");
-  assert.match(out.reply, /query 参数/);
-
-  // 正确端点
-  await dispatch("https://api.example.com/v1");
-
-  // 步骤 3 模型 ID
-  await dispatch("my-model");
-
-  // 步骤 4 敏感变量名被拒
-  out = await dispatch("VAULT_SECRET");
-  assert.match(out.reply, /密钥环境变量名不合法/);
-
-  // 正确密钥变量名
-  out = await dispatch("CHATAI_KEY_TEST");
-  assert.match(out.reply, /配置摘要/);
-
-  // 重来：清空重填回到第 1 步
-  out = await dispatch("重来");
-  assert.match(out.reply, /第 1\/4 步/);
-
-  // 随时取消
-  out = await dispatch("取消");
-  assert.match(out.reply, /已取消模型配置向导/);
-  assert.equal(store.listModels().length, 0);
+test("新增模型校验、取消和多连接选择，不创建隐式服务",async t=>{
+  const vault=new IdentityVault();t.after(()=>vault.close());const {dispatch,store}=setup({vault});
+  assert.match((await dispatch("!模型新增")).reply,/连接新增/);
+  assert.equal(store.listConnections().length,0);
+  connection(store,"a");connection(store,"b");
+  assert.match((await dispatch("!模型新增")).reply,/服务连接/);
+  await dispatch("!模型新增 a");
+  assert.match((await dispatch("x".repeat(129))).reply,/1至128/);
+  assert.match((await dispatch("sk-pasted-secret")).reply,/拒绝保存/);
+  await dispatch("取消");assert.equal(store.listModels().length,0);
+  await dispatch("!模型新增 b");await dispatch("model-b");await dispatch("第二个");await dispatch("确认");
+  assert.equal(store.listModels()[0].connectionId,"b");
 });
 
-test("!模型修改：依次询问并支持「跳过」保留原值", async t => {
-  const vault = new IdentityVault(":memory:");
-  t.after(() => vault.close());
-  const {dispatch, store} = setup({vault});
-
-  // 预置档案
-  store.saveModel({
-    id: "edit_me",
-    endpoint: "https://api.example.com/v1",
-    model: "original-model",
-    apiKeyEnv: "CHATAI_KEY_ORIGINAL"
-  });
-
-  // 未提供别名
-  let out = await dispatch("!模型修改");
-  assert.match(out.reply, /!模型修改 <别名>/);
-
-  // 不存在的别名
-  out = await dispatch("!模型修改 not_exist");
-  assert.match(out.reply, /未找到模型档案 not_exist/);
-
-  // 启动修改向导
-  out = await dispatch("!模型修改 edit_me");
-  assert.match(out.reply, /第 1\/3 步：接口地址/);
-  assert.match(out.reply, /跳过/);
-
-  // 步骤 1 跳过接口地址
-  out = await dispatch("跳过");
-  assert.match(out.reply, /第 2\/3 步：模型标识/);
-
-  // 步骤 2 修改模型标识
-  out = await dispatch("updated-model-v2");
-  assert.match(out.reply, /第 3\/3 步：密钥环境变量名/);
-
-  // 步骤 3 跳过密钥变量名
-  out = await dispatch("跳过");
-  assert.match(out.reply, /配置摘要/);
-  assert.match(out.reply, /updated-model-v2/);
-
-  // 确认修改
-  out = await dispatch("确认");
-  assert.match(out.reply, /【模型修改成功】/);
-
-  const updated = store.getModel("edit_me");
-  assert.equal(updated.endpoint, "https://api.example.com/v1");
-  assert.equal(updated.model, "updated-model-v2");
-  assert.equal(updated.apiKeyEnv, "CHATAI_KEY_ORIGINAL");
+test("模型修改仅改变上游模型ID，保留共享连接、其他模型及参数",async t=>{
+  const vault=new IdentityVault();t.after(()=>vault.close());const {dispatch,store}=setup({vault});connection(store);
+  store.saveModel({id:"edit",label:"日常",connectionId:"service",model:"before",temperature:0.7,maxContextChars:30000});
+  store.saveModel({id:"other",connectionId:"service",model:"other"});
+  const service=store.getConnection("service"),other=store.getModel("other");
+  assert.match((await dispatch("!模型修改")).reply,/!模型修改 <模型名称或ID>/);
+  assert.match((await dispatch("!模型修改 missing")).reply,/未找到唯一/);
+  assert.match((await dispatch("!模型修改 日常")).reply,/上游模型 ID/);
+  await dispatch("after");assert.match((await dispatch("确认")).reply,/模型修改成功/);
+  assert.equal(store.getModel("edit").model,"after");assert.equal(store.getModel("edit").temperature,0.7);
+  assert.equal(store.getModel("edit").maxContextChars,30000);
+  assert.deepEqual(store.getConnection("service"),service);assert.deepEqual(store.getModel("other"),other);
+  await dispatch("!模型修改 edit");await dispatch("跳过");await dispatch("确认");assert.equal(store.getModel("edit").model,"after");
 });
 
-test("群聊中发起向导被拒、TTL 10 分钟过期、中途权限撤销", async t => {
-  const vault = new IdentityVault(":memory:");
-  t.after(() => vault.close());
+test("模型修改保存时保留并发服务与参数修改，拒绝覆盖已删除或被改写的模型",async t=>{
+  const vault=new IdentityVault();t.after(()=>vault.close());const {dispatch,store}=setup({vault});connection(store);
+  store.saveModel({id:"edit",connectionId:"service",model:"before"});
+  await dispatch("!模型修改 edit");await dispatch("after");
+  store.saveConnection({...store.getConnection("service"),endpoint:"https://new.example.com/v1",apiKeyEnv:"CHATAI_KEY_NEW"});
+  store.saveModel({...store.getModel("edit"),temperature:1.2});await dispatch("确认");
+  assert.equal(store.getModel("edit").endpoint,"https://new.example.com/v1");
+  assert.equal(store.getModel("edit").apiKeyEnv,"CHATAI_KEY_NEW");assert.equal(store.getModel("edit").temperature,1.2);
+  await dispatch("!模型修改 edit");await dispatch("stale");store.deleteModel("edit");
+  assert.match((await dispatch("确认")).reply,/已被删除或修改/);assert.equal(store.getModel("edit"),null);
+  store.saveModel({id:"edit",connectionId:"service",model:"before"});
+  await dispatch("!模型修改 edit");await dispatch("stale");store.saveModel({...store.getModel("edit"),model:"newer"});
+  await dispatch("确认");assert.equal(store.getModel("edit").model,"newer");
+});
 
-  let currentTime = 1000000;
-  const now = () => currentTime;
-  const {dispatcher, dispatch} = setup({vault, now});
-
-  // 群聊发起被拒
-  let out = await dispatch("!模型新增", {isGroup: true, groupId: "1001"});
-  assert.match(out.reply, /私聊/);
-
-  // 私聊发起
-  out = await dispatch("!模型新增");
-  assert.match(out.reply, /第 1\/4 步/);
-
-  // 时间前进 11 分钟 (660,000 ms)
-  currentTime += 11 * 60 * 1000;
-
-  // 再次发送普通文本：向导已过期，不作为向导输入消费
-  out = await dispatch("main");
-  assert.notEqual(out.reply, "");
-  assert.doesNotMatch(out.reply, /第 2\/4 步/);
-
-  // 重新发起向导并在第 2 步撤销管理员权限
-  await dispatch("!模型新增");
-  await dispatch("main2");
-  dispatcher.removeAdmin("mock:admin");
-
-  out = await dispatch("https://api.example.com/v1");
-  assert.match(out.reply, /管理员权限已失效/);
+test("模型修改支持取消、重来、群聊拒绝、TTL到期及权限撤销",async t=>{
+  const vault=new IdentityVault();t.after(()=>vault.close());let time=1000000;
+  const {dispatcher,dispatch,store}=setup({vault,now:()=>time});connection(store);
+  store.saveModel({id:"edit",connectionId:"service",model:"before"});
+  assert.match((await dispatch("!模型修改 edit",{isGroup:true,groupId:"g"})).reply,/私聊/);
+  await dispatch("!模型修改 edit");await dispatch("candidate");await dispatch("重来");await dispatch("取消");
+  assert.equal(store.getModel("edit").model,"before");
+  await dispatch("!模型修改 edit");time+=11*60*1000;await dispatch("after-timeout");
+  assert.equal(store.getModel("edit").model,"before");
+  await dispatch("!模型修改 edit");dispatcher.removeAdmin("mock:admin");
+  assert.match((await dispatch("after-revoke")).reply,/管理员权限已失效/);
+  assert.equal(store.getModel("edit").model,"before");
 });

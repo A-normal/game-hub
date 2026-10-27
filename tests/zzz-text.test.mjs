@@ -51,7 +51,7 @@ test("official panel uses all owned characters; selected refresh preserves other
   const h=setup(t,{client,services:{now:()=>now},config:{panelCooldownMs:1000}});
   await h.run("*更新面板");assert.equal(calls,2);assert.equal(h.store.get(owner,role,"panel","mihoyo").data.avatars.length,2);
   now+=2000;atk=2500;await h.run("*更新面板 角色一");let cache=h.store.get(owner,role,"panel","mihoyo");assert.equal(cache.data.avatars.length,2);assert.equal(cache.data.avatars.find(r=>r.id==="1").properties.攻击力.value,"2500");
-  await h.run("*角色一面板");assert.match(h.replies.at(-1),/攻击力: 2500/);assert.ok(!h.replies.at(-1).includes("3,180"));
+  await h.run("*面板 角色一");assert.match(h.replies.at(-1),/攻击力: 2500/);assert.ok(!h.replies.at(-1).includes("3,180"));
   assert.equal((await h.run("*更新面板 角色一")).status,"FAILED");assert.match(h.replies.at(-1),/冷却/);
   now+=2000;fail=true;await h.run("*更新面板 角色一");assert.deepEqual(h.store.get(owner,role,"panel","mihoyo"),cache);
 });
@@ -63,8 +63,8 @@ test("public UID only uses Enka showcase and never borrows another user's privat
 });
 test("official battle families use correct periods and never fabricate missing scores or parties",async t=>{
   const calls=[];const h=setup(t,{client:{record:async(type,uid,region,extra)=>{calls.push([type,extra]);return type==="shiyu"?{hadal_info_v2:{total_star:9,list:[{floor:3,rating:"A"}]}}:{has_data:false};}}});
-  await h.run("*深渊 上期");assert.deepEqual(calls[0],["shiyu",{schedule_type:2}]);assert.match(h.replies.at(-1),/星数: 9/);assert.ok(!h.replies.at(-1).includes("21"));assert.ok(!h.replies.at(-1).includes("艾莲"));
-  for(const cmd of ["危局","拟境","爬塔","临界","空洞","枯萎之都","迷失之地","绝境作战","探索","日历"]) {await h.run("*"+cmd);assert.match(h.replies.at(-1),/暂无记录/);}
+  await h.run("*式舆防卫战 上期");assert.deepEqual(calls[0],["shiyu",{schedule_type:2}]);assert.match(h.replies.at(-1),/星数: 9/);assert.ok(!h.replies.at(-1).includes("21"));assert.ok(!h.replies.at(-1).includes("艾莲"));
+  for(const cmd of ["危局强袭战","全息拟境","模拟鏖战试炼","临界推演","零号空洞","枯萎之都","迷失之地","绝境作战","探索","活动日历"]) {await h.run("*"+cmd);assert.match(h.replies.at(-1),/暂无记录/);}
   assert.equal(calls.length,11);
 });
 test("monthly archive uses explicit year/month and aggregate never duplicates refreshed month",async t=>{
@@ -99,12 +99,12 @@ test("explicit task opt-in, daily random slot, recovery dedupe, current namespac
 });
 test("group ranking requires group enablement, explicit publication and supports privacy and withdrawal",async t=>{
   const h=setup(t,{client:{record:async()=>({hadal_info_v2:{total_star:8,end_time:Math.floor(Date.now()/1000)+3600}})}});const group={isGroup:true,groupId:"g"};
-  await h.run("*深渊");await h.run("*提交排名",group);assert.match(h.replies.at(-1),/尚未开启/);
+  await h.run("*式舆防卫战");await h.run("*提交排名",group);assert.match(h.replies.at(-1),/尚未开启/);
   assert.equal((await h.run("*群排名设置 开启",group)).status,"DENIED");
-  await h.run("*群排名设置 开启",{...group,sender:{id:"1",role:"admin"}});await h.run("*提交排名",group);await h.run("*排名",group);assert.match(h.replies.at(-1),/哲/);
-  await h.run("*排名隐私 隐藏");await h.run("*排名",group);assert.ok(!h.replies.at(-1).includes("哲"));
-  await h.run("*排名隐私 公开");await h.run("*撤回排名",group);await h.run("*排名",group);assert.match(h.replies.at(-1),/暂无已授权/);
-  await h.run("*排名",{isGroup:true,groupId:"other"});assert.match(h.replies.at(-1),/尚未开启/);
+  await h.run("*群排名设置 开启",{...group,sender:{id:"1",role:"admin"}});await h.run("*提交排名",group);await h.run("*群排名",group);assert.match(h.replies.at(-1),/哲/);
+  await h.run("*排名隐私 隐藏");await h.run("*群排名",group);assert.ok(!h.replies.at(-1).includes("哲"));
+  await h.run("*排名隐私 公开");await h.run("*撤回排名",group);await h.run("*群排名",group);assert.match(h.replies.at(-1),/暂无已授权/);
+  await h.run("*群排名",{isGroup:true,groupId:"other"});assert.match(h.replies.at(-1),/尚未开启/);
 });
 test("public history supports version filters, reruns and persistent stale cache on source failure",async t=>{
   let fail=false;const h=setup(t,{services:{fetchImpl:async(url,init)=>{

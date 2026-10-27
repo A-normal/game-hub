@@ -190,7 +190,7 @@ test('健康检查不会把HTML的200当成标准模型列表，同连接只探�
 
 test('向导不把误粘贴的模型密钥保存为名称或模型ID',async t=>{
   const f=fixture(t,{withModel:false});await f.dispatch('!连接新增');const bad=await f.dispatch('sk-mistakenly-pasted-secret');assert.match(bad.text,/拒绝保存/);assert.equal(f.store.listConnections().length,0);
-  await f.dispatch('取消');await f.dispatch('!模型新增');await f.dispatch('new');await f.dispatch('https://api.example.com/v1');const legacy=await f.dispatch('sk-another-pasted-secret');assert.match(legacy.text,/未保存/);assert.equal(f.store.listModels().length,0);
+  await f.dispatch('取消');f.store.saveConnection({id:'service',label:'服务',endpoint:'https://api.example.com/v1',apiKeyEnv:'CHATAI_KEY_DIAG'});await f.dispatch('!模型新增 service');const rejected=await f.dispatch('sk-another-pasted-secret');assert.match(rejected.text,/拒绝保存/);assert.equal(f.store.listModels().length,0);
 });
 
 test('主动任务重建恢复且创建者权限撤销后不会继续发送',async t=>{
@@ -237,8 +237,12 @@ test('默认模型编号选择确实修改全局默认，详情参数写错不�
 });
 
 test('开启新配置向导会结束旧向导，配置输入不会污染聊天历史',async t=>{
-  const f=fixture(t,{withModel:false});await f.dispatch('!模型新增');await f.dispatch('old');
-  await f.dispatch('!连接新增');await f.dispatch('新服务');await f.dispatch('https://api.example.com/v1');await f.dispatch('CHATAI_KEY_DIAG');await f.dispatch('确认');assert.equal(f.store.listConnections().length,1);assert.equal(f.store.listModels().length,0);
-  await f.dispatch('!连接新增');await f.dispatch('!模型新增');await f.dispatch('new');await f.dispatch('https://api.example.com/v1');await f.dispatch('model-a');await f.dispatch('CHATAI_KEY_DIAG');await f.dispatch('确认并使用');
+  const f=fixture(t,{withModel:false});
+  for(const value of ['!连接新增','主服务','https://api.example.com/v1','CHATAI_KEY_DIAG','确认'])await f.dispatch(value);
+  await f.dispatch('!模型新增');await f.dispatch('discarded-model');
+  await f.dispatch('!连接新增');await f.dispatch('废弃服务');
+  await f.dispatch('!模型新增');await f.dispatch('model-a');await f.dispatch('新模型');await f.dispatch('确认并使用');
+  assert.equal(f.store.listConnections().length,1);assert.equal(f.store.listModels().length,1);
+  assert.equal(f.store.listModels()[0].model,'model-a');
   assert.equal(f.store.countMessages('mock:999:private:mock:admin'),0);await f.dispatch('新问题');assert.equal(f.calls.length,1);
 });

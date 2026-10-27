@@ -4,12 +4,13 @@ import { title, divider } from "../layout.mjs";
 import crypto from "node:crypto";
 export async function handleBind(ctx) {
   const cookie = ctx.args.join(" ").trim();
+  if (!cookie && ctx.routeId === "bindGlobal") throw problem("请在私聊提供国际服 Cookie。用法："+command(ctx,"bindGlobal",["<Cookie>"]));
   if (!cookie) return handleLoginQr(ctx);
   if (ctx.event.isGroup) { await ctx.event.reply("请在私聊中提交凭据；已发到群中的凭据建议在官方客户端撤销。"); return {status:"DENIED"}; }
   const pairs = Object.fromEntries(cookie.split(";").map(v => { const p = v.indexOf("="); return p > 0 ? [v.slice(0,p).trim(),v.slice(p+1).trim()] : []; }).filter(v=>v.length===2));
   const accounts = [...new Set(["ltuid","ltuid_v2","account_id","account_id_v2","stuid"].map(k=>pairs[k]).filter(Boolean))];
   if (accounts.length !== 1 || !/^\d+$/.test(accounts[0]) || !["ltoken","ltoken_v2","cookie_token","cookie_token_v2","stoken","stoken_v2"].some(k=>pairs[k])) throw problem("Cookie 身份或令牌不完整。建议使用「"+command(ctx,"loginQr")+"」。");
-  const global = ctx.matchedToken === "绑定国际服";
+  const global = ctx.routeId === "bindGlobal";
   const accountKey=(global?"global:":"")+accounts[0];
   const existing=ctx.vault.getUserCredential(ctx.event.unifiedUserId,"mihoyo",accountKey);
   const device={...(existing?.device || {}),device_id:existing?.device?.device_id || crypto.randomUUID()};

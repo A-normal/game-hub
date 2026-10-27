@@ -77,7 +77,7 @@ export async function handleMonthly(ctx) {
   await ctx.event.reply([title("绝区零月报 · "+key),"来源：米游社月报",divider(),...dataLines(data)].join("\n"));
 }
 export async function handlePools(ctx) {
-  if (!/当前卡池/.test(ctx.matchedToken)) {
+  if (ctx.routeId !== "pools") {
     const store=storeFor(ctx),now=ctx.services.now?.() ?? Date.now();
     let cached=store.get("public",PUBLIC_ROLE,"public","poolHistory");let stale=false;
     if (ctx.routeId==="poolsRefresh" || !cached || now-cached.updatedAt>86400000) {
@@ -88,7 +88,7 @@ export async function handlePools(ctx) {
     const rows=cached.data.rows.filter(row=>!query || JSON.stringify(row).includes(query));
     const p=page(rows,ctx.args.find(v=>/^\d+$/.test(v)),8);
     const lines=["【绝区零卡池历史】", "来源：GachaClock（MIT）/ "+cached.data.source,"抓取时间："+new Date(cached.updatedAt).toISOString()+(stale?"；刷新失败，展示原缓存":""),"来源首条记录："+cached.data.rows[0].version+" / "+cached.data.rows[0].time];
-    if (/复刻/.test(ctx.matchedToken)) {
+    if (ctx.routeId === "poolReruns") {
       const names=new Map();
       for (const row of rows.filter(row=>row.type==="角色")) for(const name of row.s) {const list=names.get(name)||[];list.push(row.version+" / "+row.time);names.set(name,list);}
       const summary=page([...names],ctx.args.find(v=>/^\d+$/.test(v)),10);
@@ -118,7 +118,7 @@ export async function handlePools(ctx) {
   const lines=["【绝区零当前卡池安排】来源：米游社官方活动日历。"];
   for (const row of p.items) lines.push(...dataLines(row.data));
   lines.push("第 "+p.number+" / "+p.total+" 页；可按版本或角色名筛选。", "刷新："+command(ctx,"poolsRefresh"));
-  if (/复刻/.test(ctx.matchedToken)) {
+  if (ctx.routeId === "poolReruns") {
     const counts=new Map(); for (const row of rows) {
       for (const avatar of row.data.avatar_list || row.data.up_avatar_list || []) { const name=avatar.full_name || avatar.name || avatar.id; counts.set(name,(counts.get(name)||0)+1); }
     }

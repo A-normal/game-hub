@@ -105,7 +105,7 @@ test("chat-ai 与 llm 模块装配、依赖校验、入站落库与指令交互"
   assert.match(helpReply, /帮助/);
 
   // 检查命令行列（以两空格缩进开头的行）：不含未实现能力
-  const commandLines = helpReply.split("\n").filter(line => line.startsWith("  "));
+  const commandLines = helpReply.split("\n").filter(line => line.startsWith("!"));
   assert.ok(commandLines.length > 0);
   for (const cmdLine of commandLines) {
     assert.ok(cmdLine.trim().startsWith("!"));

@@ -1,3 +1,5 @@
+import {replyCommandHelp} from "./help.mjs";
+import {SYSTEM_COMMAND_HELP} from "./system-help.mjs";
 import crypto from "node:crypto";
 import { logger } from "../logger/logger.mjs";
 import { InboundShaper } from "../shaper/inbound-shaper.mjs";
@@ -181,7 +183,7 @@ export class GameHubDispatcher {
     for (const route of plugin?.routes || []) {
       if(route.stage && route.stage!=="command") continue;
       for(const token of route.tokens || []) {
-        const match=route.exact ? text===token : text.startsWith(token);
+        const match=route.exact ? text===token : text.startsWith(token) && (!route.argumentSeparator || text.length===token.length || /^\s/.test(text.slice(token.length)));
         if(match && (token || !text) && (!best || token.length>best.token.length)) best={route,token,tail:text.slice(token.length).trim()};
       }
       for(const suffix of route.suffixTokens || []) if(text.endsWith(suffix) && text.length>suffix.length && (!best || suffix.length>best.token.length)) best={route,token:suffix,tail:text.slice(0,-suffix.length).trim()};
@@ -224,7 +226,7 @@ export class GameHubDispatcher {
     const provider = this.providers.get(providerId);
     let activeRole;
     let client;
-    return {
+    const context = {
       event, pluginId: plugin.id, gameId: plugin.gameId, routeId: route.id, matchedToken, args, argumentText, vault: this.vault, dispatcher: this, provider,
       config: plugin.config || {}, services: plugin.services || {},
       providers: { get: id => this.providers.get(id) },
@@ -238,6 +240,8 @@ export class GameHubDispatcher {
         return client;
       }
     };
+    context.commands.help = options => replyCommandHelp(context, options);
+    return context;
   }
   async _execute(event, plugin, route, token, args, argumentText) {
     const ctx = this._context(event, plugin, route, token, args, argumentText);
@@ -332,17 +336,19 @@ export class GameHubDispatcher {
   }
 
   _registerSystemPlugin() {
-    const route = (id, tokens, action, admin = true) => ({ id, tokens, action, admin });
+    const route = (id, tokens, action, admin = true) => ({ id, tokens: [tokens[0]], argumentSeparator: true, action, admin, description: SYSTEM_COMMAND_HELP[id].description, help: SYSTEM_COMMAND_HELP[id] });
     this.registerPlugin({
       id: "system", name: "Game-Hub 系统管理总线",
       defaultNamespace: { prefix: "#", aliases: ["#gh", "gh", "gamehub", "总线", "/gh"], priority: 999 },
       routes: [
-        route("help", ["帮助", "help", "菜单", ""], async ctx => {
-          const lines = ["【Game-Hub 总线管理指令手册 (管理员专用)】"];
-          for (const [id, args] of [["status", []], ["plugins", []], ["enable", ["<插件ID>"]], ["disable", ["<插件ID>"]], ["namespace", ["<插件ID>", "<前缀>", "<别名列表>"]], ["admins", []], ["log", ["<级别>"]]]) lines.push(ctx.commands.format({ routeId: id, args }));
-          await ctx.event.reply(lines.join("\n"));
+        route("help", ["帮助"], async ctx => {
+          return replyCommandHelp(ctx, {
+            title: "Game-Hub 系统管理指令手册",
+            common: ["auth", "status", "plugins", "enable", "disable", "namespace"],
+            note: "管理指令仅限系统管理员；认证仅在私聊进行。"
+          });
         }),
-        route("auth", ["认证", "auth", "绑定管理", "登录管理"], async ctx => {
+        route("auth", ["认证"], async ctx => {
           if (ctx.event.isGroup) { await ctx.event.reply("请在私聊中认证管理员。"); return result(RouteStatus.DENIED); }
           const input = ctx.args[0] || "";
           const supplied = Buffer.from(input);
@@ -351,19 +357,19 @@ export class GameHubDispatcher {
           this.addAdmin(ctx.event.unifiedUserId);
           await ctx.event.reply("【管理员认证成功】\n" + ctx.commands.format({ routeId: "help" }));
         }, false),
-        route("status", ["状态", "status"], async ctx => {
+        route("status", ["状态"], async ctx => {
           await ctx.event.reply("【Game-Hub 总线微内核运行状态】\n运行秒数: " + Math.floor((Date.now() - this.startTime) / 1000) + "\n插件: " + this.plugins.size + "\n社区驱动: " + this.providers.size + " 个 ([" + [...this.providers.keys()].join(",") + "])");
         }),
-        route("plugins", ["插件列表", "plugins"], async ctx => {
+        route("plugins", ["插件列表"], async ctx => {
           const lines = ["业务插件 (Plugins)"];
           for (const plugin of this.listPlugins()) lines.push(plugin.name + " (" + plugin.id + ") " + (plugin.enabled ? "启用" : "禁用"));
           lines.push("社区数据驱动 (Community Providers)");
           for (const provider of this.listProviders()) lines.push(provider.name + " (" + provider.id + ") | 服务插件: " + provider.linkedPlugins.join("、"));
           await ctx.event.reply(lines.join("\n"));
         }),
-        route("enable", ["启用", "enable"], async ctx => { await ctx.event.reply(this.enablePlugin(ctx.args[0]) ? "已成功启用插件" : "插件不存在"); }),
-        route("disable", ["禁用", "disable"], async ctx => { await ctx.event.reply(this.disablePlugin(ctx.args[0]) ? "已禁用插件" : "插件不存在或不可禁用"); }),
-        route("namespace", ["命名空间", "namespace"], async ctx => {
+        route("enable", ["启用"], async ctx => { await ctx.event.reply(this.enablePlugin(ctx.args[0]) ? "已成功启用插件" : "插件不存在"); }),
+        route("disable", ["禁用"], async ctx => { await ctx.event.reply(this.disablePlugin(ctx.args[0]) ? "已禁用插件" : "插件不存在或不可禁用"); }),
+        route("namespace", ["命名空间"], async ctx => {
           try {
             if (ctx.args.length < 2) {
               await ctx.event.reply("用法: " + ctx.commands.format({ routeId: "namespace", args: ["<插件ID>", "<前缀或空字符串>", "[别名列表]"] }) + "\n前缀与别名等价，都是独立调用标记：<前缀>帮助 与 <别名>帮助 效果相同。\n只改前缀时可省略别名；别名用逗号分隔，留空表示只保留前缀。");
@@ -388,7 +394,7 @@ export class GameHubDispatcher {
             await ctx.event.reply("命名空间更新被拒绝：" + (error.publicMessage || error.message || "请检查插件ID、别名冲突和参数。"));
           }
         }),
-        route("admins", ["管理员列表", "admins"], async ctx => { await ctx.event.reply("管理员列表:\n" + [...this.adminUsers].join("\n")); }),
+        route("admins", ["管理员列表"], async ctx => { await ctx.event.reply("管理员列表:\n" + [...this.adminUsers].join("\n")); }),
         route("addAdmin", ["添加管理"], async ctx => { await ctx.event.reply(this.addAdmin(ctx.args[0]) ? "已添加管理员" : "请提供用户标识"); }),
         route("removeAdmin", ["移除管理"], async ctx => { await ctx.event.reply(this.removeAdmin(ctx.args[0]) ? "已移除管理员" : "未找到管理员"); }),
         route("log", ["日志级别"], async ctx => {

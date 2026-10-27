@@ -4,20 +4,7 @@
     { "kind": "provider", "id": "mihoyo", "entry": "packages/provider/mihoyo/src/index.mjs" },
     {
       "kind": "plugin", "id": "zzz", "entry": "packages/plugin/zzz/src/index.mjs",
-      "namespace": { "prefix": "*", "aliases": ["zzz", "绝区零"], "priority": 100 },
-      "shortcuts":[
-        {"text":"/更新面板","routeId":"panelRefresh"},
-        {"text":"／更新面板","routeId":"panelRefresh"},
-        {"text":"更新面板","routeId":"panelRefresh"},
-        {"text":"/便签","routeId":"note"},
-        {"text":"／便签","routeId":"note"},
-        {"text":"便签","routeId":"note"},
-        {"text":"/更新抽卡","routeId":"gachaUpdate"},
-        {"text":"／更新抽卡","routeId":"gachaUpdate"},
-        {"text":"更新抽卡","routeId":"gachaUpdate"},
-        {"text":"/签到","routeId":"sign"},
-        {"text":"／签到","routeId":"sign"}
-      ]
+      "namespace": { "prefix": "*", "aliases": ["zzz", "绝区零"], "priority": 100 }
     },
     {
       "kind": "channel", "id": "napcat", "entry": "packages/channel/napcat/src/index.mjs",

@@ -29,7 +29,7 @@ export async function handleListRoles(ctx) {
 const maskDevice = value => !value ? "未设置" : String(value).length <= 6 ? "*".repeat(String(value).length) : String(value).slice(0,4) + "***";
 const currentDevice = role => ({ ...(role.device || {}) });
 export async function handleAccount(ctx) {
-  if (ctx.matchedToken === "解绑") {
+  if (ctx.routeId === "unbind") {
     if (ctx.event.isGroup) { await ctx.event.reply("请私聊解绑账号。"); return {status:"DENIED"}; }
     const role = await requireRole(ctx); if (!role) return;
     const unboundUids=ctx.vault.getUserRoles(ctx.event.unifiedUserId,"zzz").filter(row=>row.provider_id===role.providerId && row.account_key===role.accountKey).map(row=>row.uid);
@@ -50,7 +50,7 @@ export async function handleAccount(ctx) {
     ].join("\n"));
     return;
   }
-  if (ctx.event.isGroup && (ctx.args.length || ctx.routeId==="deviceDefault" || ctx.matchedToken==="删除设备")) {
+  if (ctx.event.isGroup && (ctx.args.length || ["deviceDefault","deviceFingerprint"].includes(ctx.routeId) || ctx.routeId==="deviceClear")) {
     await ctx.event.reply("请在私聊配置设备。"); return {status:"DENIED"};
   }
   const existing = currentDevice(role);
@@ -61,16 +61,16 @@ export async function handleAccount(ctx) {
     if(!latest || JSON.stringify(latest.device)!==JSON.stringify(existing))throw problem("账号绑定或设备配置已变化，请重新执行设备配置。");
     ctx.vault.saveCredential(role.providerId,role.accountKey,latest.cookies,{...latest.device,...issued});
   };
-  if (ctx.matchedToken === "删除设备") {
+  if (ctx.routeId === "deviceClear") {
     ctx.vault.saveCredential(role.providerId,role.accountKey,role.cookies,{});
     await ctx.event.reply(title("绝区零设备配置") + "\n已清空当前账号的设备配置。清空后每次请求都会以全新设备身份发出，容易触发米游社设备校验（10041）。");
     return;
   }
-  if (ctx.routeId==="deviceDefault") {
+  if (["deviceDefault","deviceFingerprint"].includes(ctx.routeId)) {
     if(ctx.args.length && (ctx.args.length!==1 || ctx.args[0]!=="刷新指纹")) throw problem("用法："+command(ctx,"deviceDefault",["[刷新指纹]"]));
     // 只补缺失字段：已有真机指纹时绝不用随机值覆盖。
     const deviceId=existing.device_id || crypto.randomUUID();
-    const replaceFp=ctx.matchedToken==="更新设备指纹" || ctx.args[0]==="刷新指纹" || !existing.device_fp;
+    const replaceFp=ctx.routeId==="deviceFingerprint" || ctx.args[0]==="刷新指纹" || !existing.device_fp;
     const issued=replaceFp ? await ctx.provider.issueDeviceFingerprint(deviceId,{region:role.region,mobile:existing.device_android}) : {};
     const dev = {
       ...existing,...issued,

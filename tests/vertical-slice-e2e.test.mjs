@@ -199,14 +199,14 @@ test("NapCat End-to-End Vertical Slice Suite (NapCat → 绑定选角色 → 查
       assert.ok(noteReply1.includes("每日活跃: 500 / 500"));
 
       // -----------------------------------------------------------------------
-      // Step D: 用户发送 *选角色 10009999 -> 期望成功将主角色切换为 铃
+      // Step D: 用户发送 *切换角色 10009999 -> 期望成功将主角色切换为 铃
       // -----------------------------------------------------------------------
       napcatClient.send(JSON.stringify({
         post_type: "message",
         message_type: "private",
         user_id: TEST_QQ_USER,
-        message: "*选角色 10009999",
-        raw_message: "*选角色 10009999",
+        message: "*切换角色 10009999",
+        raw_message: "*切换角色 10009999",
         message_id: 1004
       }));
 

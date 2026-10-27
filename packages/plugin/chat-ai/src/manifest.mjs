@@ -1,3 +1,4 @@
+import {CHAT_COMMAND_HELP} from "./command-help.mjs";
 /**
  * @file packages/plugin/chat-ai/src/manifest.mjs
  * @description chat-ai 路由表。默认命名空间为 !（别名 ！）。
@@ -29,9 +30,7 @@ import {clipText, dayKey, isSensitiveText, resolvePolicy, sessionDataOf} from ".
 import {
   handleWizardInput,
   isWizardEvent,
-  modelAdd,
   modelCheck,
-  modelList,
   modelRemove,
   modelSet
 } from "./wizard.mjs";
@@ -123,11 +122,11 @@ export const manifest = {
   defaultNamespace: {prefix: "!", aliases: ["！"], priority: 50},
   providers: [{id: "llm", capabilities: ["chat"]}],
   routes: [
-    {id: "help", tokens: ["帮助", "菜单"], action: withAdmin(help)},
+    {id: "help", tokens: ["帮助"], action: withAdmin(help)},
     {id: "status", tokens: ["状态"], action: withAdmin(status)},
-    {id: "say", tokens: ["对话", "说"], action: withAdmin(say)},
+    {id: "say", tokens: ["对话"], action: withAdmin(say)},
 
-    {id: "modelAdd", tokens: ["模型新增"], action: withAdmin(modelAdd)},
+    {id: "modelAdd", tokens: ["模型新增"], action: withAdmin(catalog.modelAdd)},
     {id: "modelSet", tokens: ["模型修改"], action: withAdmin(modelSet)},
     {id: "modelRemove", tokens: ["模型删除"], action: withAdmin(modelRemove)},
     {id: "modelList", tokens: ["模型列表"], action: withAdmin(catalog.modelList)},
@@ -155,7 +154,7 @@ export const manifest = {
       ["settings","设置",catalog.settings], ["connectionAdd","连接新增",catalog.connectionAdd],
       ["connectionList","连接列表",catalog.connectionList], ["connectionInfo","连接详情",catalog.connectionInfo],
       ["connectionEdit","连接修改",catalog.connectionEdit], ["connectionDelete","连接删除",catalog.connectionDelete],
-      ["connectionDiscover","发现模型",catalog.connectionDiscover], ["connectionModelAdd","连接模型新增",catalog.connectionModelAdd],
+      ["connectionDiscover","发现模型",catalog.connectionDiscover],
       ["modelUse","模型切换",catalog.useModel], ["defaultModel","默认模型",catalog.defaultModel],
       ["modelOptions","模型参数",catalog.modelOptions], ["modelInfo","模型详情",catalog.modelInfo], ["modelRename","模型命名",catalog.modelRename],
       ["retry","重试",catalog.retry], ["cancel","取消回复",catalog.cancel], ["characterEdit","人物编辑",catalog.characterEdit],
@@ -177,7 +176,7 @@ export const manifest = {
     {id:"catalogInput",stage:"text",match:catalog.isCatalogInput,action:catalog.catalogInput},
     {id: "observe", stage: "observer", action: observe},
     {id: "reply", stage: "fallback", action: replyAction}
-  ]
+  ].map(route => CHAT_COMMAND_HELP[route.id] ? {...route, argumentSeparator: true, description: CHAT_COMMAND_HELP[route.id].description, help: CHAT_COMMAND_HELP[route.id]} : route)
 };
 
 export default manifest;

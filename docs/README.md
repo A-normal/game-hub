@@ -2,6 +2,7 @@
 
 此目录保存随源码发布、持续维护的使用说明与开发契约。
 
+- [指令与帮助、旧指令迁移](commands.md)
 - [运行与部署](operations.md)
 - [插件开发约定](plugin-development.md)
 - [chatAi 使用说明](chat-ai.md)

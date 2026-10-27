@@ -83,9 +83,10 @@ function harness(t, options = {}) {
     replies.push(String(message));
     return options.reply ? options.reply(target, message) : { success: true, messageId: "reply-1" };
   } });
-  const run = (text = "%扫码", userId = 12345) => handler({
+  const run = (text = "%扫码登录", userId = 12345) => handler({
     event: event(text, userId),
-    matchedToken: text.includes("终止") ? "扫码终止" : "扫码",
+    routeId: text.includes("取消扫码") ? "loginCancel" : "loginQr",
+    matchedToken: text.includes("取消扫码") ? "取消扫码" : "扫码登录",
     args: [], vault
   });
   const assertEmpty = () => {
@@ -138,12 +139,12 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
   await t.test("explicit device rebuild authenticates and persists the same officially issued environment",async t=>{
     const h=harness(t);await h.run();const first=h.vault.getActiveRole(USER,"zzz");
     h.vault.saveCredential("mihoyo",ACCOUNT,first.cookies,{device_id:"legacy-device",device_fp:"fake-legacy-fp"});
-    await h.handler({event:h.event("%扫码 重建设备"),matchedToken:"扫码",args:["重建设备"],vault:h.vault});
+    await h.handler({event:h.event("%扫码登录 重建设备"),matchedToken:"扫码",args:["重建设备"],vault:h.vault});
     const role=h.vault.getActiveRole(USER,"zzz");assert.notEqual(role.device.device_id,"legacy-device");assert.equal(role.device.device_fp_source,"official-web");
     const qr=h.requests.filter(row=>row.url.includes("createQRLogin")).at(-1);assert.equal(qr.init.headers["x-rpc-device_id"],role.device.device_id);assert.equal(qr.init.headers["x-rpc-device_fp"],role.device.device_fp);
   });
   await t.test("group login never creates or exposes an authorization QR",async t=>{
-    const h=harness(t);const event={...h.event("%扫码"),isGroup:true};
+    const h=harness(t);const event={...h.event("%扫码登录"),isGroup:true};
     assert.equal((await h.handler({event,args:[],vault:h.vault})).status,"DENIED");
     assert.equal(h.requests.length,0);h.assertEmpty();
   });
@@ -166,7 +167,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     dispatcher.registerPlugin({ ...ZZZPluginManifest, routes: ZZZPluginManifest.routes.map(route =>
       route.id === "loginQr" ? { ...route, action: h.handler } : route) });
     dispatcher.setNamespace("zzz", { prefix: "%", aliases: ["zzz", "绝区零"] });
-    const event = h.event("%扫码");
+    const event = h.event("%扫码登录");
     assert.equal(event.originalId, undefined, "must reproduce the actual gateway envelope");
     await dispatcher.dispatch(event);
     const user = h.vault.db.prepare("SELECT * FROM chat_users").get();
@@ -213,7 +214,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
         "cookie_token_v2=v2_cookie==; Path=/"
       ] }
     });
-    await h.run("%扫码 web");
+    await h.run("%扫码登录 web");
     assert.ok(h.requests.find(request=>request.url.includes("createQRLogin")).url.includes("/web/"));
     assert.equal(h.requests.find(request=>request.url.includes("createQRLogin")).init.headers["x-rpc-app_id"], "bll8iq97cem8");
     assert.ok(h.vault.getActiveRole(USER, "zzz").cookies.ck.includes("cookie_token_v2=v2_cookie=="));
@@ -290,7 +291,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
 
   await t.test("missing sender identity is rejected before creating a login ticket", async t => {
     const h = harness(t);
-    const event = h.event("%扫码");
+    const event = h.event("%扫码登录");
     delete event.sender;
     await h.handler({ event, vault: h.vault, matchedToken: "扫码", args: [] });
     h.assertEmpty();
@@ -300,7 +301,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
 
   await t.test("missing Vault is rejected before requesting a QR code", async t => {
     const h = harness(t);
-    await h.handler({ event: h.event("%扫码"), matchedToken: "扫码", args: [] });
+    await h.handler({ event: h.event("%扫码登录"), matchedToken: "扫码", args: [] });
     assert.equal(h.requests.length, 0);
     assert.ok(h.replies.at(-1).includes("身份库不可用"));
   });
@@ -318,7 +319,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     await h.run();
     h.assertEmpty();
     assert.equal(h.requests.length, 2);
-    await h.run("%扫码终止");
+    await h.run("%取消扫码");
     assert.ok(h.replies.at(-1).includes("没有正在进行"));
   });
 
@@ -327,7 +328,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
       const h = harness(t, { statuses: [status] });
       await h.run();
       h.assertEmpty();
-      await h.run("%扫码终止");
+      await h.run("%取消扫码");
       assert.ok(h.replies.at(-1).includes("没有正在进行"));
     });
   }
@@ -375,7 +376,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
     await Promise.all([h.run(), delay(30)]);
     assert.ok(h.requests[0].init.signal.aborted);
     h.assertEmpty();
-    await h.run("%扫码终止");
+    await h.run("%取消扫码");
     assert.ok(h.replies.at(-1).includes("没有正在进行"));
   });
 
@@ -394,14 +395,14 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
       } });
       const login = h.run();
       await started.promise;
-      await h.run("%扫码终止");
+      await h.run("%取消扫码");
       assert.ok(request.init.signal.aborted);
       const repliesAtCancel = h.replies.length;
       pending.resolve(await request.base(request.url, request.init));
       await login;
       h.assertEmpty();
       assert.equal(h.replies.length, repliesAtCancel, "late request must not emit new results");
-      await h.run("%扫码终止");
+      await h.run("%取消扫码");
       assert.ok(h.replies.at(-1).includes("没有正在进行"));
     });
   }
@@ -426,7 +427,7 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
       first.resolve(api(CONFIRMED));
       await oldLogin;
       if (cancelNew) {
-        await h.run("%扫码终止");
+        await h.run("%取消扫码");
         assert.ok(h.replies.at(-1).includes("成功终止"), "new session must still occupy the slot");
       }
       second.resolve(api(CONFIRMED));
@@ -450,14 +451,14 @@ test("ZZZ QR login: real event identity, credentials, transactions and lifecycle
 
   await t.test("re-scan keeps the bound device environment and the manually selected main role", async t => {
     const h = harness(t);
-    await h.run("%扫码");
+    await h.run("%扫码登录");
     const first = h.vault.getActiveRole(USER, "zzz");
     assert.equal(first.uid, "17708598", "first login picks the highest level role");
     // 用户随后手填了真机设备，并把主角色改成 10009999
     h.vault.saveCredential("mihoyo", first.accountKey, first.cookies, { device_id: "real-device-0001", device_fp: "0123456789abc" });
     h.vault.setActiveRole(USER, "zzz", "10009999");
     h.replies.length = 0;
-    await h.run("%扫码");
+    await h.run("%扫码登录");
     const second = h.vault.getActiveRole(USER, "zzz");
     assert.equal(second.uid, "10009999", "manual main role must survive re-login");
     assert.equal(second.device.device_id, "real-device-0001", "bound device id must survive re-login");

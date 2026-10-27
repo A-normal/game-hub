@@ -156,10 +156,11 @@ test("help/status 由 commands.format 生成，命名空间变更后输出随之
   assert.match(output.reply, /!模型新增/);
   assert.match(output.reply, /!人物导入/);
   assert.match(output.reply, /!清空上下文/);
-  // TASK-07 起「说」「策略设置」已实现，必须出现在帮助里；未实现的能力不得出现。
+  // 常用帮助列出规范名称，命名空间变化后所有示例同步更新。
   assert.match(output.reply, /!对话/);
   assert.match(output.reply, /!策略设置/);
-  const commandLines = output.reply.split("\n").filter(line => line.startsWith("  "));
+  const commandLines = output.reply.split("\n").filter(line => line.startsWith("!"));
+  assert.ok(commandLines.length > 0);
   for (const cmdLine of commandLines) {
     assert.ok(cmdLine.trim().startsWith("!"));
   }

@@ -359,12 +359,12 @@ test("say 与 policySet：显式对话、敏感拒绝、额度、私聊/群聊�
   assert.equal(statusOut.status, "HANDLED");
   assert.ok(statusOut.reply.includes("额度: " + todayRequests + "/1"));
 
-  out = await h.dispatch("!说 ltoken=abc", {eventId: "say-2"});
+  out = await h.dispatch("!对话 ltoken=abc", {eventId: "say-2"});
   assert.match(out.reply, /已拒绝/);
   assert.equal(client.calls.length, 1);
   assert.equal(h.store.recentMessages(PRIVATE, 10).length, 2);
 
-  out = await h.dispatch("!说 再问一句", {eventId: "say-3"});
+  out = await h.dispatch("!对话 再问一句", {eventId: "say-3"});
   assert.match(out.reply, /今日额度已用完/);
   assert.equal(client.calls.length, 1);
   assert.equal(h.store.recentMessages(PRIVATE, 10).length, 2);

@@ -8,4 +8,5 @@ export * from "./logger/logger.mjs";
 export * from "./identity/vault.mjs";
 export * from "./shaper/inbound-shaper.mjs";
 export * from "./dispatcher/dispatcher.mjs";
+export * from "./dispatcher/help.mjs";
 export * from "./runtime/loader.mjs";

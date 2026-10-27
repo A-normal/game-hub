@@ -55,7 +55,7 @@
  * @property {Object} client Lazily created from the caller's binding.
  * @property {Object} provider
  * @property {{get:(id:string)=>Object}} providers
- * @property {{format:(command:CommandSpec)=>string}} commands Evaluates current namespace at each call.
+ * @property {{format:(command:CommandSpec)=>string,help:(options:Object)=>Promise<void>}} commands Formats commands and renders read-only help using the current namespace.
  * @property {Object} config
  * @property {Object} services Plugin-owned dependencies, caches and tasks.
  * @property {Object} vault
@@ -68,6 +68,9 @@
  * @property {string[]} [suffixTokens] Dynamic leading arguments, such as a character name.
  * @property {'command'|'text'|'observer'|'fallback'|'event'|'observer'} [stage] `observer` 在 text 之后、fallback 之前执行，返回值被忽略，route.admin 不参与鉴权
  * @property {boolean} [exact]
+ * @property {boolean} [argumentSeparator] Require whitespace between the token and arguments.
+ * @property {string} [description] Short user-facing purpose.
+ * @property {Object} [help] Plugin-owned args, usages, scope, details, examples, related route IDs and group.
  * @property {boolean} [admin]
  * @property {string} [provider] Selected provider ID for this route.
  * @property {(event:IEventEnvelope)=>boolean} [match] Text/fallback/observer eligibility predicate.

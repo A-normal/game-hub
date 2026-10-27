@@ -21,7 +21,7 @@ function setup(t, client={}) {
 }
 test("group device mutations are refused before writes and device values remain private",async t=>{
   const h=setup(t),before=h.vault.getActiveRole(owner,"zzz").device;
-  for(const cmd of ["删除设备","默认设备","重置设备","绑定设备 replacement 9999999999999"]) {
+  for(const cmd of ["删除设备","默认设备","更新设备指纹","绑定设备 replacement 9999999999999"]) {
     assert.equal((await h.run("*"+cmd,{isGroup:true})).status,"DENIED");
     assert.deepEqual(h.vault.getActiveRole(owner,"zzz").device,before);
     assert.ok(!h.replies.at(-1).includes(before.device_fp));
@@ -77,7 +77,7 @@ test("rankings exclude legacy, expired and old periods and split regions",t=>{
 });
 test("rankings reject incomplete periods and permit withdrawal after group disablement",async t=>{
   const h=setup(t,{record:async()=>({total_star:8})}),group={isGroup:true,groupId:"g",sender:{id:"1",role:"admin"}};
-  await h.run("*群排名设置 开启",group);await h.run("*深渊");
+  await h.run("*群排名设置 开启",group);await h.run("*式舆防卫战");
   assert.equal((await h.run("*提交排名",group)).status,"FAILED");assert.match(h.replies.at(-1),/周期/);
   await h.run("*群排名设置 关闭",group);await h.run("*撤回排名",group);assert.match(h.replies.at(-1),/已撤回/);
 });

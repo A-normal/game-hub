@@ -47,49 +47,15 @@ test("模型档案：非管理员 DENIED 且不写入，管理员向导增改删
   // 授权管理员
   dispatcher.addAdmin("mock:1");
 
-  // 向导创建档案 main
-  output = await dispatch("!模型新增");
-  assert.equal(output.status, "HANDLED");
-  assert.match(output.reply, /第 1\/4 步/);
-
-  await dispatch("main");
-  await dispatch("https://api.example.com/v1");
-  await dispatch("gpt-4o-mini");
-  output = await dispatch("CHATAI_KEY_MAIN");
-  assert.match(output.reply, /配置摘要/);
-  assert.match(output.reply, /CHATAI_KEY_\*\*\*/);
-  assert.equal(output.reply.includes("CHATAI_KEY_MAIN"), false);
-
-  output = await dispatch("确认");
-  assert.match(output.reply, /【模型新增成功】/);
-
-  const saved = store.getModel("main");
-  assert.ok(saved);
-  assert.equal(saved.endpoint, "https://api.example.com/v1");
-  assert.equal(saved.model, "gpt-4o-mini");
-  assert.equal(saved.apiKeyEnv, "CHATAI_KEY_MAIN");
-
-  // 尝试新增已存在别名 -> 向导第 1 步提示已存在
-  await dispatch("!模型新增");
-  output = await dispatch("main");
-  assert.match(output.reply, /已存在/);
-  await dispatch("取消");
-
-  // !模型修改 向导
-  output = await dispatch("!模型修改 main");
-  assert.match(output.reply, /第 1\/3 步/);
-  // 跳过端点
-  await dispatch("跳过");
-  // 修改模型为 gpt-4o
-  await dispatch("gpt-4o");
-  // 跳过密钥
-  output = await dispatch("跳过");
-  assert.match(output.reply, /配置摘要/);
-  output = await dispatch("确认");
-  assert.match(output.reply, /【模型修改成功】/);
-
-  const updated = store.getModel("main");
-  assert.equal(updated.model, "gpt-4o");
+  // 服务配置与模型新增只有一条路径，不再重复询问地址和密钥。
+  for(const value of ["!连接新增","主服务","https://api.example.com/v1","CHATAI_KEY_MAIN","确认"]) await dispatch(value);
+  await dispatch("!模型新增"); await dispatch("gpt-4o-mini"); await dispatch("main"); await dispatch("确认");
+  const saved=store.listModels()[0], id=saved.id;
+  assert.equal(saved.endpoint,"https://api.example.com/v1");
+  assert.equal(saved.model,"gpt-4o-mini"); assert.equal(saved.apiKeyEnv,"CHATAI_KEY_MAIN");
+  output=await dispatch("!模型修改 "+id);assert.match(output.reply,/上游模型 ID/);
+  await dispatch("gpt-4o");output=await dispatch("确认");assert.match(output.reply,/模型修改成功/);
+  assert.equal(store.getModel(id).model,"gpt-4o");
 
   // !模型列表
   output = await dispatch("!模型列表");
@@ -102,9 +68,9 @@ test("模型档案：非管理员 DENIED 且不写入，管理员向导增改删
   // !模型删除
   output = await dispatch("!模型删除 nope");
   assert.match(output.reply, /未找到模型档案 nope/);
-  output = await dispatch("!模型删除 main");
-  assert.match(output.reply, /已删除模型档案 main/);
-  assert.equal(store.getModel("main"), null);
+  output = await dispatch("!模型删除 "+id);
+  assert.match(output.reply, /已删除模型档案/);
+  assert.equal(store.getModel(id), null);
   assert.equal(store.listModels().length, 0);
 });
 
@@ -142,7 +108,7 @@ test("参数缺失时给出用 ctx.commands.format 生成的用法提示", async
   t.after(() => vault.close());
   const {dispatch} = setup({vault, admin: true});
   for (const [text, expected] of [
-    ["!模型修改", /!模型修改 <别名>/],
+    ["!模型修改", /!模型修改 <模型名称或ID>/],
     ["!模型删除", /!模型删除 <别名>/]
   ]) {
     const output = await dispatch(text);

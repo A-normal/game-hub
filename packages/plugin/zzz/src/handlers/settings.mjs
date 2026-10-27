@@ -11,7 +11,7 @@ export async function handleCalculationSettings(ctx) {
 }
 export async function handleAlias(ctx) {
   const store=storeFor(ctx),owner=ctx.event.unifiedUserId,aliases=store.option(owner,"aliases",{});
-  if (ctx.matchedToken==="删除别名") { delete aliases[ctx.args[0]]; store.setOption(owner,"aliases",aliases); await ctx.event.reply("已删除该个人别名。"); return; }
+  if (ctx.routeId==="aliasRemove") { delete aliases[ctx.args[0]]; store.setOption(owner,"aliases",aliases); await ctx.event.reply("已删除该个人别名。"); return; }
   if (!ctx.args.length) { await ctx.event.reply("【个人角色别名】\n"+Object.entries(aliases).map(([k,v])=>k+" → "+v).join("\n")+"\n"+command(ctx,"aliases",["<别名>","<完整角色名/ID>"])); return; }
   if (ctx.args.length<2 || ctx.args.some(v=>v.length>80 || /[\[\]\r\n]/.test(v))) throw problem("请提供有效的别名和完整角色名或 ID。");
   aliases[ctx.args[0]]=ctx.args.slice(1).join(" "); store.setOption(owner,"aliases",aliases); await ctx.event.reply("个人角色别名已保存。");
@@ -82,7 +82,7 @@ export async function handleMaintenance(ctx) {
   const store = storeFor(ctx);
   const owner = ctx.event.unifiedUserId;
 
-  if (["面板冷却", "刷新冷却"].includes(ctx.matchedToken)) {
+  if (ctx.routeId === "cooldown") {
     if (!ctx.args.length) {
       const currentMs = Number(store.option(owner, "panelCooldownMs", ctx.config?.panelCooldownMs ?? 60000));
       await ctx.event.reply("【面板刷新冷却】当前设置：" + Math.round(currentMs / 1000) + " 秒。\n修改冷却：" + command(ctx, "cooldown", ["<秒数>"]));

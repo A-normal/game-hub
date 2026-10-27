@@ -172,7 +172,7 @@ export function createLoginQrHandler({
     const userId = ctx.event.unifiedUserId;
     const args = ctx.args || [];
     const token = ctx.matchedToken || "";
-    const isCancel = token.includes("终止") || token.includes("取消") ||
+    const isCancel = ctx.routeId === "loginCancel" || token === "取消扫码" ||
       ["终止", "取消", "stop"].includes(args[0]?.toLowerCase());
     if (isCancel) {
       const current = sessions.get(userId);

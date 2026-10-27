@@ -60,7 +60,7 @@ function resolve(items,value) {
 export async function connectionInfo(ctx) {
   const r=resolve(ctx.services.store.listConnections(),ctx.args[0]); if(!r) return connectionList(ctx);
   const ep=validateChatEndpoint(r.endpoint);
-  await ctx.event.reply([`【服务：${r.label}】`,`标识：${r.id}`,`地址：${r.endpoint}`,`实际聊天路径：${ep.url || ep.reason}`,`密钥：${process.env[r.apiKeyEnv]?.trim()?'已配置':'未配置'}`,`模型：${ctx.services.store.listModels().filter(m=>m.connectionId===r.id).map(m=>m.label || m.id).join('、') || '尚未添加'}`,`发现模型：${command(ctx,'connectionDiscover',[r.id])}`,`手动添加：${command(ctx,'connectionModelAdd',[r.id])}`].join("\n"));
+  await ctx.event.reply([`【服务：${r.label}】`,`标识：${r.id}`,`地址：${r.endpoint}`,`实际聊天路径：${ep.url || ep.reason}`,`密钥：${process.env[r.apiKeyEnv]?.trim()?'已配置':'未配置'}`,`模型：${ctx.services.store.listModels().filter(m=>m.connectionId===r.id).map(m=>m.label || m.id).join('、') || '尚未添加'}`,`发现模型：${command(ctx,'connectionDiscover',[r.id])}`,`手动添加：${command(ctx,'modelAdd',[r.id])}`].join("\n"));
 }
 export async function connectionAdd(ctx) { return beginConnection(ctx,null); }
 export async function connectionEdit(ctx) {
@@ -82,7 +82,7 @@ async function connectionStep(ctx,d,raw) {
   if(raw!=="确认")return ctx.event.reply("请回复「确认」或「取消」。");
   d.data.id ||= "service-"+crypto.randomUUID().replaceAll("-","").slice(0,12);
   ctx.services.store.saveConnection(d.data);drafts.delete(key(ctx.event));
-  await ctx.event.reply(`服务已保存。添加模型：${command(ctx,'connectionModelAdd',[d.data.id])}；发现模型：${command(ctx,'connectionDiscover',[d.data.id])}。`);
+  await ctx.event.reply(`服务已保存。添加模型：${command(ctx,'modelAdd',[d.data.id])}；发现模型：${command(ctx,'connectionDiscover',[d.data.id])}。`);
 }
 export async function connectionDelete(ctx) {
   const row=resolve(ctx.services.store.listConnections(),ctx.args[0]);if(!row)return ctx.event.reply("未找到唯一的服务连接。");
@@ -104,7 +104,7 @@ export async function connectionDiscover(ctx) {
     await ctx.event.reply([`【${row.label} 的模型】第${page}/${pages}页`,...visible.map((id,i)=>`${i+1}. ${id}`),"回复编号添加该模型；列表可达不等于生成已验证。",page<pages?command(ctx,'connectionDiscover',[row.id,page+1]):""].join("\n"));
   } catch(error) {await ctx.event.reply(error.publicMessage || "模型列表查询失败，请检查网络或手动添加模型。");}
 }
-export async function connectionModelAdd(ctx) {return beginModel(ctx,ctx.args[0]);}
+export async function modelAdd(ctx) {return beginModel(ctx,ctx.args[0]);}
 async function beginModel(ctx,connectionId,upstream=null) {
   if(ctx.event.isGroup)return ctx.event.reply("模型添加请在私聊进行。");
   const connections=ctx.services.store.listConnections(), c=resolve(connections,connectionId) || (connections.length===1?connections[0]:null);if(!c)return connectionList(ctx);
