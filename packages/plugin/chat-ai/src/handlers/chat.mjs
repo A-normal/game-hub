@@ -22,7 +22,7 @@ export async function help(ctx) {
  */
 export async function status(ctx) {
   const services = servicesOf(ctx);
-  const {store, config} = services;
+  const {store} = services;
   const event = ctx.event;
   const data = sessionDataOf(event);
   if (!data) {
@@ -30,6 +30,7 @@ export async function status(ctx) {
     return;
   }
   const session = store.ensureSession(data);
+  const config=store.runtimeConfig(data.sessionId,services.config);
   const used = store.getUsage(data.sessionId, dayKey(clockOf(services)))?.requests ?? 0;
   const pending = typeof services.engine?.pending === "function" ? services.engine.pending(data.sessionId) : 0;
   const defaultProfile = (store.getSetting("defaultModel") ?? (services.health?.defaultProfileId || config.model.defaultProfileId)) || "无";
@@ -77,13 +78,14 @@ export async function status(ctx) {
  */
 export async function say(ctx) {
   const services = servicesOf(ctx);
-  const {store, config, engine} = services;
+  const {store, engine} = services;
   const event = ctx.event;
   const data = sessionDataOf(event);
   if (!data) {
     await event.reply("无法确定当前会话。");
     return;
   }
+  const config=store.runtimeConfig(data.sessionId,services.config);
   const raw = String(ctx.argumentText || "").trim();
   if (!raw) {
     await event.reply(usage(ctx, "say", ["<内容>"]));

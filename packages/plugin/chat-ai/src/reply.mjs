@@ -53,17 +53,18 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
   }
   async function runJob(job) {
     if (!valid(job)) return;
+    const runtime=store.runtimeConfig(job.sessionId,config);
     const session = store.getSession(job.sessionId), profile = profileOf(session);
     if (!profile) { missingModel(job.sessionId); return notice(job, "NO_MODEL", NO_MODEL_MESSAGE); }
     let client;
     try { client = resolveClient(profile); }
     catch (error) { write("warn", `模型客户端创建失败 code=${error.code || 'ERROR'}`); return notice(job, error.code || "LLM_CONFIG", NO_MODEL_MESSAGE); }
     if (!client?.complete) return notice(job, "NO_PROVIDER", NO_MODEL_MESSAGE);
-    if (!store.reserveUsage(job.sessionId, dayKey(now()), config.limits.requestsPerDay)) return notice(job, "QUOTA", "今日模型调用额度已用完，请明天再试。");
+    if (!store.reserveUsage(job.sessionId, dayKey(now()), runtime.limits.requestsPerDay)) return notice(job, "QUOTA", "今日模型调用额度已用完，请明天再试。");
     // 用户消息在入队时固定，只有属于更早问题的已完成回复可以补入。
     const history = [...job.history];
     const seen = new Set(history.map(row => row.seq));
-    for (const row of store.recentMessages(job.sessionId, config.retention.maxMessages)) {
+    for (const row of store.recentMessages(job.sessionId, runtime.retention.maxMessages)) {
       if (row.role === "assistant" && row.replyTo != null && row.replyTo < job.cutoff && !seen.has(row.seq)) history.push(row);
     }
     history.sort((a,b) => (a.replyTo ?? a.seq) - (b.replyTo ?? b.seq) || (a.role === "assistant" ? 1 : -1));
@@ -73,8 +74,8 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
     const summary = store.getOption(job.sessionId, "summary:" + store.branchOf(job.sessionId), "");
     job.summaryKey="summary:"+store.branchOf(job.sessionId);job.summaryUsed=summary;
     const stickers = store.getOption(job.sessionId, "stickersEnabled", false) ? availableAssets(store,session.characterId || "") : [];
-    const prompt = buildPrompt({character:character?.card, history, maxMessages:config.retention.maxMessages,
-      maxCharsPerMessage:config.retention.maxCharsPerMessage, maxContextChars:profile.maxContextChars ?? config.model.maxContextChars,
+    const prompt = buildPrompt({character:character?.card, history, maxMessages:runtime.retention.maxMessages,
+      maxCharsPerMessage:runtime.retention.maxCharsPerMessage, maxContextChars:store.getOption(job.sessionId,"maxContextChars",profile.maxContextChars ?? config.model.maxContextChars),
       isGroup:job.isGroup, userName:job.userName, memory, summary, stickers,interjection:job.trigger==="interjection",botId:session.botId});
     if (job.trigger === "scheduled") prompt.messages.push({role:"user",content:"现在适合主动问候，请结合已有对话说一句简短自然的话。不编造对方刚说过的内容，也不要求对方立刻回复。"});
     if(job.trigger==="event") {
@@ -148,7 +149,7 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
       const seq=store.recentMessages(job.sessionId,1)[0]?.seq;
       for(const id of deliveredIds.slice(1))store.db.prepare("INSERT OR IGNORE INTO chat_message_sources VALUES(?,?,?,?)").run(job.sessionId,id,seq,store.branchOf(job.sessionId));
     }
-    store.pruneMessages(job.sessionId, config.retention.maxMessages);
+    store.pruneMessages(job.sessionId, runtime.retention.maxMessages);
   }
   async function runQueue(sessionId, queue) {
     queue.running = true;
@@ -166,7 +167,7 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
     let queue = queues.get(input.sessionId);
     if (!queue) { queue={running:false,jobs:[]}; queues.set(input.sessionId,queue); }
     if (queue.jobs.length >= config.limits.queuePerSession) return false;
-    const history = store.recentMessages(input.sessionId, config.retention.maxMessages);
+    const history = store.recentMessages(input.sessionId, store.runtimeConfig(input.sessionId,config).retention.maxMessages);
     const cutoff = history.filter(row => row.role === "user").at(-1)?.seq || 0;
     queue.jobs.push({...input,activityAt:store.getSession(input.sessionId)?.updatedAt, history:structuredClone(history), cutoff});
     if (!queue.running) void runQueue(input.sessionId, queue);

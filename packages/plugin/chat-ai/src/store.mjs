@@ -1,10 +1,11 @@
 /**
  * @file packages/plugin/chat-ai/src/store.mjs
  * @description chat-ai 自有表（chat_ 前缀）的建表与 SQL 存取。
- *              只做 SQL 与行映射，不做业务判断；所有语句均为参数化 prepared statement。
+ *              SQL、行映射与插件配置继承解析；所有语句均为参数化 prepared statement。
  */
 
 import crypto from "node:crypto";
+import {INHERITED_OPTIONS,MERGED_OPTIONS} from "./preferences.mjs";
 
 const DDL = `
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -161,7 +162,11 @@ export class ChatStore {
 
   getSession(sessionId) {
     const row = this.db.prepare("SELECT * FROM chat_sessions WHERE session_id = ?").get(String(sessionId));
-    return row ? mapSession(row) : null;
+    if(!row)return null;
+    const session=mapSession(row);
+    session.characterId=row.character_id===null?this.getSetting("default:characterId",null):(row.character_id || null);
+    session.defaultPolicy=this.getSetting("default:"+(session.scope==="group"?"groupPolicy":"privatePolicy"),null);
+    return session;
   }
 
   /** 策略变更同时递增 epoch（旧回复任务据此失效）。 */
@@ -173,7 +178,7 @@ export class ChatStore {
   /** 人物切换/卸下同时递增 epoch。 */
   setCharacter(sessionId, characterId) {
     return this.db.prepare("UPDATE chat_sessions SET character_id = ?, epoch = epoch + 1, updated_at = ? WHERE session_id = ?")
-      .run(nullable(characterId), this.now(), String(sessionId)).changes > 0;
+      .run(characterId ?? "", this.now(), String(sessionId)).changes > 0;
   }
 
   /** 模型档案变更同时递增 epoch。 */
@@ -259,12 +264,14 @@ export class ChatStore {
   }
 
   saveCharacter({id, name, card, owner = null}) {
+    const existed=!!this.getCharacter(id);
     const now = this.now();
     const payload = typeof card === "string" ? card : JSON.stringify(card ?? {});
     this.db.prepare(
       "INSERT INTO chat_characters (id, name, card, owner, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) " +
       "ON CONFLICT(id) DO UPDATE SET name = excluded.name, card = excluded.card, owner = excluded.owner, updated_at = excluded.updated_at"
     ).run(String(id), String(name ?? ""), payload, nullable(owner), now, now);
+    if(existed)for(const row of this.db.prepare("SELECT session_id FROM chat_sessions").all())if(this.getSession(row.session_id).characterId===id)this.bumpEpoch(row.session_id);
     return this.getCharacter(id);
   }
 
@@ -282,6 +289,11 @@ export class ChatStore {
   }
 
   deleteCharacter(id) {
+    if(this.getSetting("default:characterId")===String(id)) {
+      const followers=this.db.prepare("SELECT session_id FROM chat_sessions WHERE character_id IS NULL").all();
+      this.setSetting("default:characterId",null);
+      for(const row of followers)this.bumpEpoch(row.session_id);
+    }
     return Number(this.db.prepare("DELETE FROM chat_characters WHERE id = ?").run(String(id)).changes) > 0;
   }
 
@@ -375,7 +387,20 @@ export class ChatStore {
 
   getSetting(key, fallback = null) { const row = this.db.prepare("SELECT payload FROM chat_settings WHERE key=?").get(key); return row ? JSON.parse(row.payload) : fallback; }
   setSetting(key, value) { this.db.prepare("INSERT INTO chat_settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET payload=excluded.payload").run(key, JSON.stringify(value)); }
-  getOption(sessionId, key, fallback = null) { const row = this.db.prepare("SELECT payload FROM chat_options WHERE session_id=? AND key=?").get(sessionId, key); return row ? JSON.parse(row.payload) : fallback; }
+  getLocalOption(sessionId,key,fallback=undefined) {const row=this.db.prepare("SELECT payload FROM chat_options WHERE session_id=? AND key=?").get(sessionId,key);return row?JSON.parse(row.payload):fallback;}
+  getOption(sessionId, key, fallback = null) {
+    const local=this.getLocalOption(sessionId,key);
+    if(!INHERITED_OPTIONS.has(key))return local===undefined?fallback:local;
+    const global=this.getSetting("default:"+key,undefined);
+    if(MERGED_OPTIONS.has(key) && (local!==undefined || global!=null))return {...fallback,...global,...local};
+    return local!==undefined?local:global!=null?global:fallback;
+  }
+  deleteOption(sessionId,key) {this.db.prepare("DELETE FROM chat_options WHERE session_id=? AND key=?").run(sessionId,key);}
+  runtimeConfig(sessionId,config) {
+    return {...config,retention:{...config.retention,maxMessages:this.getOption(sessionId,"maxMessages",config.retention.maxMessages),maxCharsPerMessage:this.getOption(sessionId,"maxCharsPerMessage",config.retention.maxCharsPerMessage)},
+      model:{...config.model,maxContextChars:this.getOption(sessionId,"maxContextChars",config.model.maxContextChars)},
+      limits:{...config.limits,requestsPerDay:this.getOption(sessionId,"requestsPerDay",config.limits.requestsPerDay)}};
+  }
   setOption(sessionId, key, value) { this.db.prepare("INSERT INTO chat_options VALUES(?,?,?) ON CONFLICT(session_id,key) DO UPDATE SET payload=excluded.payload").run(sessionId, key, JSON.stringify(value)); }
 
   reserveUsage(sessionId, day, limit) {

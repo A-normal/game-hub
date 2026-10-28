@@ -58,6 +58,7 @@ export function resolvePolicy(session, config) {
   const stored = session?.policy;
   if (stored === "off" || stored === "mention" || stored === "all") return stored;
   if (!session) return "off";
+  if(["off","mention","all"].includes(session.defaultPolicy))return session.defaultPolicy;
   const defaults = config?.policy || {};
   const fallback = session.scope === "group" ? defaults.groupDefault : defaults.privateDefault;
   return fallback === "off" || fallback === "mention" || fallback === "all" ? fallback : "off";

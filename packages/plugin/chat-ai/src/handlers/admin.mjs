@@ -10,6 +10,7 @@ import {MAX_CARD_BYTES,parseCharacterCard} from "../character.mjs";
 import {beginInput,decodeCardText} from "../input.mjs";
 import {clearDraft} from "../wizard.mjs";
 import {clearCatalogDraft} from "../catalog.mjs";
+import {changePreferences} from "../preferences.mjs";
 import {clipText,isSensitiveText,resolvePolicy, servicesOf, sessionDataOf} from "../session.mjs";
 import {
   modelAdd,
@@ -30,10 +31,10 @@ export async function characterList(ctx) {
     await ctx.event.reply("目前没有人物卡。管理员可在私聊用 " + usage(ctx, "characterImport", ["<JSON>"]) + " 导入。");
     return;
   }
-  remember(ctx,"character",characters);
+  if(!ctx.event.isGroup)remember(ctx,"character",characters);
   const lines = ["【人物卡】共 " + characters.length + " 个"];
-  for (const [index,item] of characters.entries()) lines.push((index+1) + ". " + (item.name || "未命名") + " | " + item.id);
-  lines.push("私聊回复本次列表编号即可切换。");
+  for (const [index,item] of characters.entries()) lines.push(`${ctx.event.isGroup?"列表序号":"选择编号"}：${index+1}\n名称：${item.name || "未命名"}\nID：${item.id}`);
+  lines.push(ctx.event.isGroup?"群内请使用人物ID切换；编号选择仅支持私聊。":"私聊回复本次选择编号即可切换，10分钟内有效；选择编号不是人物ID。");
   lines.push("绑定: " + ctx.commands.format({routeId: "characterUse", args: ["<人物ID>"]}));
   await ctx.event.reply(lines.join("\n"));
 }
@@ -88,6 +89,7 @@ export async function characterUse(ctx) {
   if (!id) { await ctx.event.reply(usage(ctx, "characterUse", ["<人物ID>"])); return; }
   const data = sessionDataOf(ctx.event);
   if (!data) { await ctx.event.reply("无法确定当前会话。"); return; }
+  if(id==="跟随全局") {changePreferences(ctx,"local",[{key:"characterId",inherit:true}]);return ctx.event.reply("本会话人物已跟随全局，历史仍按会话和人物独立保留。");}
   const character = store.getCharacter(id);
   if (!character) { await ctx.event.reply("未找到人物卡 " + id + "。"); return; }
   store.ensureSession(data);
@@ -120,8 +122,8 @@ export async function policySet(ctx) {
   const data = sessionDataOf(event);
   if (!data) { await event.reply("无法确定当前会话。"); return; }
   const value = String((ctx.args || [])[0] || "").toLowerCase();
-  if (!["off", "mention", "all"].includes(value)) {
-    await event.reply(usage(ctx, "policySet", ["<off|mention|all>"]));
+  if (!["off", "mention", "all","跟随全局"].includes(value)) {
+    await event.reply(usage(ctx, "policySet", ["<off|mention|all|跟随全局>"]));
     return;
   }
   if (!event.isGroup && value === "mention") {
@@ -129,21 +131,21 @@ export async function policySet(ctx) {
     return;
   }
   store.ensureSession(data);
-  store.setPolicy(data.sessionId, value);
-  ctx.services.engine?.cancel(data.sessionId);
+  changePreferences(ctx,"local",[{key:"policy",value,inherit:value==="跟随全局"}]);
   const lines = ["本会话策略已设为 " + value + "。"];
   if (value === "off") lines.push("off 会同时停止记录与回复：本会话之后的消息不再进入上下文，也不会得到自动回复。");
-  lines.push("当前值: " + value);
+  lines.push("当前值: " + resolvePolicy(store.getSession(data.sessionId),ctx.services.config));
   await event.reply(lines.join("\n"));
 }
 
 export async function contextShow(ctx) {
-  const {store, config} = servicesOf(ctx);
+  const {store} = servicesOf(ctx);
   const event = ctx.event;
   const data = sessionDataOf(event);
   if (!data) { await event.reply("无法确定当前会话。"); return; }
   const session = store.ensureSession(data);
-  const model=store.getModel(session.modelProfileId || store.getSetting("defaultModel") || ctx.services.health?.defaultProfileId || config.model.defaultProfileId || ""), budget=model?.maxContextChars ?? config.model.maxContextChars, card=store.getCharacter(session.characterId || "");
+  const config=store.runtimeConfig(data.sessionId,ctx.services.config);
+  const model=store.getModel(session.modelProfileId || store.getSetting("defaultModel") || ctx.services.health?.defaultProfileId || config.model.defaultProfileId || ""), budget=store.getOption(data.sessionId,"maxContextChars",model?.maxContextChars ?? config.model.maxContextChars), card=store.getCharacter(session.characterId || "");
   await event.reply([
     "【上下文】",
     "会话: " + data.sessionId,
@@ -204,7 +206,7 @@ export async function characterExport(ctx) {
 }
 export async function characterDelete(ctx) {
   const [id,confirm]=ctx.args,{store}=ctx.services,row=store.getCharacter(id || "");if(!row)return ctx.event.reply("未找到人物。");
-  const affected=store.db.prepare("SELECT count(*) AS n FROM chat_sessions WHERE character_id=?").get(id).n;
+  const affected=store.db.prepare("SELECT session_id FROM chat_sessions").all().filter(row=>store.getSession(row.session_id).characterId===id).length;
   if(confirm!=="确认")return ctx.event.reply(`删除「${row.name}」会解除${affected}个会话的绑定并删除此人物分支历史。确认：`+ctx.commands.format({routeId:"characterDelete",args:[id,"确认"]}));
   const remove=()=>{store.db.prepare("UPDATE chat_sessions SET character_id=NULL,epoch=epoch+1 WHERE character_id=?").run(id);store.db.prepare("DELETE FROM chat_messages WHERE branch_id=?").run(id);store.db.prepare("DELETE FROM chat_options WHERE key=?").run("summary:"+id);store.deleteCharacter(id);};
   ctx.vault._transaction(remove);await ctx.event.reply("人物与对应分支历史已删除，其它人物历史不变。");

@@ -1,9 +1,7 @@
-import {dayKey, isSensitiveText, resolvePolicy, sessionDataOf} from "./session.mjs";
+import {dayKey, resolvePolicy, sessionDataOf} from "./session.mjs";
+import {INTERJECTION_DEFAULTS,changePreferences,interjectionChange} from "./preferences.mjs";
 
-export const INTERJECTION_DEFAULTS = Object.freeze({
-  enabled:false, probability:5, keywordProbability:40, followupProbability:60,
-  windowMs:15000, cooldownMs:60000, maxPerHour:6, keywords:[]
-});
+export {INTERJECTION_DEFAULTS};
 export const interjectionSettings = (store, id) => ({...INTERJECTION_DEFAULTS,...store.getOption(id,"interjection",{})});
 const decision = (services,id,reason,details={}) => {
   services.store.setOption(id,"interjectionLast",{at:services.now(),reason,...details});
@@ -18,7 +16,7 @@ export function isReplyToBot(store, id, event) {
 }
 
 export function tryInterjection(ctx,session) {
-  const {services,event}=ctx,{store,engine,config}=services,id=session.sessionId;
+  const {services,event}=ctx,{store,engine}=services,id=session.sessionId,config=store.runtimeConfig(id,services.config);
   const settings=interjectionSettings(store,id);
   if(!event.isGroup || !settings.enabled)return false;
   const skip=reason=>{decision(services,id,reason);return false;};
@@ -74,27 +72,9 @@ export async function interjectionStatus(ctx) {
 export async function interjectionSet(ctx) {
   if(!ctx.event.isGroup)return ctx.event.reply("自然插话用于群聊，请在目标群设置。");
   if(!ctx.args.length)return interjectionStatus(ctx);
-  const data=sessionDataOf(ctx.event),{store,engine}=ctx.services,[option,...args]=ctx.args;
-  const settings=interjectionSettings(store,data.sessionId);
-  if(["on","off"].includes(option)) {
-    if(args.length)return ctx.event.reply("on/off后不需要其他参数。");
-    settings.enabled=option==="on";
-  }
-  else if(option==="关键词") {
-    const words=args.join(" ");
-    if(isSensitiveText(words))return ctx.event.reply("关键词不能包含凭据或可执行消息段。");
-    const keys=words==="清空"?[]:[...new Set(words.split(/[,，、\s]+/).filter(Boolean))];
-    if(keys.length>20 || keys.some(k=>Array.from(k).length>40) || (!keys.length && words!=="清空"))return ctx.event.reply("请提供最多20个关键词，每个最多40字；使用空格或逗号分隔，或填写清空。");
-    settings.keywords=keys;
-  } else {
-    const fields={概率:["probability",0,100,1],关键词概率:["keywordProbability",0,100,1],续聊概率:["followupProbability",0,100,1],冷却:["cooldownMs",15,3600,1000],窗口:["windowMs",5,300,1000],每小时:["maxPerHour",1,60,1]};
-    const field=Object.hasOwn(fields,option)?fields[option]:null,value=Number(args[0]);
-    if(!field || args.length!==1 || !Number.isFinite(value) || !Number.isInteger(value) || value<field[1] || value>field[2])return ctx.event.reply("参数无效。概率/关键词概率/续聊概率：0–100；冷却：15–3600秒；窗口：5–300秒；每小时：1–60次。关键词支持空格或逗号分隔。");
-    settings[field[0]]=value*field[3];
-  }
-  store.ensureSession(data);store.setOption(data.sessionId,"interjection",settings);
-  store.bumpEpoch(data.sessionId);engine.cancel(data.sessionId);
+  const data=sessionDataOf(ctx.event),{store}=ctx.services;
+  try{changePreferences(ctx,"local",[interjectionChange(ctx.args)]);}catch(error){if(!error.publicMessage)throw error;return ctx.event.reply(error.publicMessage);}
   // Preserve the last window and speaking cooldown across setting changes.
-  if(!settings.enabled)decision(ctx.services,data.sessionId,"disabled");
+  if(!interjectionSettings(store,data.sessionId).enabled)decision(ctx.services,data.sessionId,"disabled");
   await interjectionStatus(ctx);
 }

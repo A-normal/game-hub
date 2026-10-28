@@ -6,6 +6,7 @@ import {IdentityVault,GameHubDispatcher,InboundShaper} from "../packages/core/sr
 import {createModule} from "../packages/plugin/chat-ai/src/index.mjs";
 import {parseCharacterCard} from "../packages/plugin/chat-ai/src/character.mjs";
 import {buildPrompt} from "../packages/plugin/chat-ai/src/prompt.mjs";
+import {interjectionSettings} from "../packages/plugin/chat-ai/src/interjection.mjs";
 import {NapCatGateway} from "../packages/channel/napcat/src/server.mjs";
 
 let seq=0;
@@ -119,7 +120,8 @@ test("插话设置有管理员权限、边界校验和动态命名空间；重�
   const f=setup(t);await f.enable();
   await f.send("!插话设置 off",{unifiedUserId:"mock:guest",sender:{id:"guest"}});assert.equal(f.store.getOption(SID,"interjection").enabled,true);
   for(const text of ["概率 -1","概率 101","窗口 0","冷却 0","每小时 0","关键词 Cookie: secret","__proto__ 10"])await f.send("!插话设置 "+text);
-  assert.equal(f.store.getOption(SID,"interjection").probability,5);
+  assert.equal(interjectionSettings(f.store,SID).probability,5);
+  assert.equal(Object.hasOwn(f.store.getLocalOption(SID,"interjection"),"probability"),false);
   f.d.setNamespace("chat-ai",{prefix:"~",aliases:[]});await f.send("~插话状态");assert.match(f.replies.at(-1),/~插话设置 on/);
   const replacement=createModule({vault:f.vault,dispatcher:f.d});assert.equal(replacement.services.store.getOption(SID,"interjection").enabled,true);await replacement.stop();
 });

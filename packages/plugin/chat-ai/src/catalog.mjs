@@ -4,6 +4,7 @@ import {parseCharacterCard} from "./character.mjs";
 import {hasChatAdmin} from "./admin.mjs";
 import {sessionDataOf,clipText,isSensitiveText} from "./session.mjs";
 import {validateChatEndpoint,validateApiKeyEnvName} from "./health.mjs";
+import {configurationSettings} from "./preferences.mjs";
 
 const selections = new Map(), drafts = new Map();
 const key = e => [e.platform,e.botId,e.unifiedUserId].join(":");
@@ -39,16 +40,7 @@ export async function catalogInput(ctx) {
 }
 
 export async function settings(ctx) {
-  const {store,health,config}=ctx.services, data=sessionDataOf(ctx.event), session=store.ensureSession(data);
-  const defaultId=(store.getSetting("defaultModel") ?? (health.defaultProfileId || config.model.defaultProfileId));
-  const model=store.getModel(session.modelProfileId || defaultId || "");
-  const lines=["【聊天设置】",`模型：${model?.label || model?.id || '尚未选择'}${session.modelProfileId?'（本会话指定）':'（跟随全局默认）'}`,
-    `人物：${store.getCharacter(session.characterId || '')?.name || '通用助手'}`,`策略：${session.policy || config.policy[data.scope+'Default']}`,
-    `服务连接：${store.listConnections().length}；模型：${store.listModels().length}`,
-    `查看配置：${command(ctx,'modelInfo')}`,`选择模型：${command(ctx,'modelList')}`,`添加服务：${command(ctx,'connectionAdd')}`,
-    `选择人物：${command(ctx,'characterList')}`,`重试 / 取消：${command(ctx,'retry')} / ${command(ctx,'cancel')}`];
-  if(!model) lines.push(`下一步：先完成连接与模型配置，再用 ${command(ctx,'modelUse',['<名称或ID>'])} 立即应用。`);
-  await ctx.event.reply(lines.join("\n"));
+  return configurationSettings(ctx);
 }
 export async function connectionList(ctx) {
   const rows=ctx.services.store.listConnections(); remember(ctx,"connection",rows);
@@ -157,7 +149,7 @@ export async function modelRename(ctx) {
 }
 export async function retry(ctx) {
   const {store,engine}=ctx.services,data=sessionDataOf(ctx.event),session=store.ensureSession(data);
-  const row=store.recentMessages(data.sessionId,ctx.services.config.retention.maxMessages).filter(m=>m.role==="user").at(-1);
+  const row=store.recentMessages(data.sessionId,store.runtimeConfig(data.sessionId,ctx.services.config).retention.maxMessages).filter(m=>m.role==="user").at(-1);
   if(!row)return ctx.event.reply("当前人物分支还没有可以重试的问题。");
   if(!engine.enqueue({sessionId:data.sessionId,epoch:session.epoch,text:row.text,reply:ctx.event.reply,isGroup:ctx.event.isGroup,trigger:"explicit"}))await ctx.event.reply("队列已满。");
 }

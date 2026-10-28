@@ -57,7 +57,8 @@ function observe(ctx) {
   if (data.botId && senderId === data.botId) return;
   const raw = typeof event.cleanText === "string" ? event.cleanText : "";
   if (!raw.trim() || isSensitiveText(raw)) return;
-  const text = clipText(raw, services.config.retention.maxCharsPerMessage);
+  const config=services.store.runtimeConfig(data.sessionId,services.config);
+  const text = clipText(raw, config.retention.maxCharsPerMessage);
   if (!text || isSensitiveText(text)) return;
   const store = services.store;
   // 策略 off 同时停止记录与回复；回复侧的同一判定在 replyAction 里。
@@ -75,7 +76,7 @@ function observe(ctx) {
     text
   });
   // 同一 event_id 重复到达时不重复计数，也不触发额外裁剪。
-  if (inserted) store.pruneMessages(data.sessionId, services.config.retention.maxMessages);
+  if (inserted) store.pruneMessages(data.sessionId, config.retention.maxMessages);
   services.intake.set(event, {accepted:inserted});
 }
 
@@ -93,7 +94,7 @@ function replyAction(ctx) {
     if (typeof event.reply !== "function") return false;
     const data = sessionDataOf(event);
     if (!data) return false;
-    const {store, config, engine} = services;
+    const {store, engine} = services,config=store.runtimeConfig(data.sessionId,services.config);
     const session = store.ensureSession(data);
     const policy = resolvePolicy(session, config);
     if (policy === "off") return false;
