@@ -31,8 +31,19 @@ export async function summarize(ctx) {
 export async function summaryClear(ctx) {const d=current(ctx);ctx.services.store.setOption(d.sessionId,"summary:"+ctx.services.store.branchOf(d.sessionId),"");ctx.services.store.setOption(d.sessionId,"summarySources:"+ctx.services.store.branchOf(d.sessionId),[]);ctx.services.store.bumpEpoch(d.sessionId);ctx.services.engine.cancel(d.sessionId);await ctx.event.reply("本人物分支摘要已删除，旧请求已失效。");}
 const eventTypes={poke:"戳一戳",join:"入群",leave:"离群",recall:"撤回"};
 const eventTemplates={join:"欢迎新朋友加入，坐下聊聊吧。",leave:"一位群友离开了，愿之后的路一切顺利。",poke:"嗯？我在，想聊些什么？",recall:"收到撤回提醒，相关上下文已更新。"};
+const eventSettings=(store,id,type)=>store.getOption(id,"event:"+type,{mode:store.getOption(id,"eventsEnabled",false)?"template":"off"});
+const eventReasons={disabled:"该事件回复未开启",policy_off:"会话策略已关闭",target_other:"戳的不是机器人",duplicate:"重复通知",cooldown:"处于事件冷却",template_sent:"模板已交付",persona_queued:"已交给人物模型",queue_full:"回复队列已满",delivery_failed:"模板交付失败"};
+export async function eventStatus(ctx) {
+  const data=sessionDataOf(ctx.event);if(!data)return;
+  const {store}=ctx.services,last=store.getOption(data.sessionId,"lastEventResult",null);
+  await ctx.event.reply(["【本会话事件响应】",...Object.entries(eventTypes).map(([type,label])=>`${label}：${eventSettings(store,data.sessionId,type).mode}`),
+    `最近通知：${last?`${eventTypes[last.type]}；${eventReasons[last.reason] || last.reason}`:"尚未收到可识别的通知"}`,
+    "同一人同类30秒冷却，会话总冷却10秒。先用template测试，无需配置模型。",
+    `启用戳一戳：${usage(ctx,"eventSet",["poke","template"])}`].join("\n"));
+}
 export async function eventSet(ctx) {
   const d=current(ctx),[type,mode,...words]=ctx.args,{store}=ctx.services;
+  if(!type)return eventStatus(ctx);
   if(["on","off"].includes(type)) {
     store.setOption(d.sessionId,"eventsEnabled",type==="on");
     if(type==="off")for(const name of Object.keys(eventTypes))store.setOption(d.sessionId,"event:"+name,{mode:"off"});
@@ -40,7 +51,7 @@ export async function eventSet(ctx) {
     store.bumpEpoch(d.sessionId);ctx.services.engine.cancel(d.sessionId);
     return ctx.event.reply(`本会话事件响应已${type==='on'?'开启（固定模板）':'关闭'}。可单独设置：poke|join|leave|recall + off|template|persona + 可选模板。`);
   }
-  if(!eventTypes[type] || !["off","template","persona"].includes(mode))return ctx.event.reply("用法：事件设置 on|off，或 事件设置 <poke|join|leave|recall> <off|template|persona> [模板文字]。");
+  if(!eventTypes[type] || !["off","template","persona"].includes(mode))return ctx.event.reply("用法："+usage(ctx,"eventSet",["<poke|join|leave|recall>","<off|template|persona>","[模板文字]"]));
   const template=words.join(" ");
   if(template.length>500 || isSensitiveText(template))return ctx.event.reply("模板最多500字，不能包含凭据或可执行消息段。");
   store.setOption(d.sessionId,"event:"+type,{mode,template:template || eventTemplates[type]});
@@ -51,25 +62,34 @@ export async function eventResponse(ctx) {
   const e=ctx.event,d=sessionDataOf(e),{store}=ctx.services;
   if(!d)return false;
   const recall=["group_recall","friend_recall"].includes(e.noticeType);
-  const type=recall?"recall":e.noticeType==="group_increase"?"join":e.noticeType==="group_decrease"?"leave":e.noticeType==="notify" && e.noticeSubtype==="poke" && e.targetUserId===e.botId?"poke":null;
+  const type=recall?"recall":e.noticeType==="group_increase"?"join":e.noticeType==="group_decrease"?"leave":e.noticeType==="notify" && e.noticeSubtype==="poke"?"poke":null;
   if(!type)return false;
-  if(!store.claimEvent(d.sessionId,e.eventId))return true;
+  // A notice can be the first event in a conversation. Preserve activity time for existing sessions.
+  const session=store.getSession(d.sessionId) || store.ensureSession(d);
+  const outcome=reason=>{store.setOption(d.sessionId,"lastEventResult",{at:ctx.services.now(),type,reason});ctx.services.log.debug(`事件 type=${type} reason=${reason}`);return true;};
+  if(type==="poke" && (!e.botId || e.targetUserId!==e.botId))return outcome("target_other");
+  if(!store.claimEvent(d.sessionId,e.eventId))return outcome("duplicate");
   if(recall) {
     const affected=store.recallMessage(d.sessionId,e.recalledMessageId);
     ctx.services.engine.cancelAffected?.(d.sessionId,affected);
   }
-  if(ctx.dispatcher?.isPluginEnabled?.("chat-ai")===false || resolvePolicy(store.getSession(d.sessionId),ctx.services.config)==="off")return true;
-  const settings=store.getOption(d.sessionId,"event:"+type,{mode:store.getOption(d.sessionId,"eventsEnabled",false)?"template":"off"});
-  if(settings.mode==="off")return true;
+  if(ctx.dispatcher?.isPluginEnabled?.("chat-ai")===false || resolvePolicy(session,ctx.services.config)==="off")return outcome("policy_off");
+  const settings=eventSettings(store,d.sessionId,type);
+  if(settings.mode==="off")return outcome("disabled");
   const now=ctx.services.now(),key="noticeCooldown:"+type+":"+e.sender?.id,last=store.getOption(d.sessionId,key,null),global=store.getOption(d.sessionId,"lastNotice",null);
-  if((last!==null && now-last<30000) || (global!==null && now-global<10000))return true;
+  if((last!==null && now-last<30000) || (global!==null && now-global<10000))return outcome("cooldown");
   // Reserve cooldown before an asynchronous reply or enqueue, preventing burst duplicates.
   store.setOption(d.sessionId,key,now);store.setOption(d.sessionId,"lastNotice",now);
   if(settings.mode==="persona") {
-    const session=store.ensureSession(d);
-    return ctx.services.engine.enqueue({sessionId:d.sessionId,epoch:session.epoch,trigger:"event",notice:{type,actor:clipText(e.sender?.name || e.sender?.id,40),target:e.targetUserId || null},userName:e.sender?.name,isGroup:e.isGroup,reply:e.reply}) || true;
+    const accepted=ctx.services.engine.enqueue({sessionId:d.sessionId,epoch:session.epoch,trigger:"event",notice:{type,actor:clipText(e.sender?.name || "群友",40),target:type==="poke"?"机器人":null},userName:e.sender?.name,isGroup:e.isGroup,reply:e.reply});
+    return outcome(accepted?"persona_queued":"queue_full");
   }
-  await e.reply(settings.template || eventTemplates[type]);return true;
+  try {
+    const delivery=await e.reply(settings.template || eventTemplates[type]);
+    if(delivery?.success===false)return outcome("delivery_failed");
+    store.setOption(d.sessionId,"interjectionLastSpoke",now);
+    return outcome("template_sent");
+  } catch {return outcome("delivery_failed");}
 }
 export {stickerAdd,stickerList,stickerDelete} from "./assets.mjs";
 export async function stickerSet(ctx) {const d=current(ctx),value=ctx.args[0];if(!["on","off"].includes(value))return ctx.event.reply("请选择 on 或 off。");ctx.services.store.setOption(d.sessionId,"stickersEnabled",value==="on");ctx.services.store.bumpEpoch(d.sessionId);await ctx.event.reply(`本会话表情回复已${value==='on'?'开启':'关闭'}，只能使用管理员登记的素材。`);}

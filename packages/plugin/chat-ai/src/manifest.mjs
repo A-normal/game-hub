@@ -24,6 +24,7 @@ import {
 import * as catalog from "./catalog.mjs";
 import * as features from "./features.mjs";
 import * as assets from "./assets.mjs";
+import {interjectionSet,interjectionStatus,interjectionSettings,isReplyToBot,tryInterjection} from "./interjection.mjs";
 import {consumeInput} from "./input.mjs";
 import {help, say, status} from "./handlers/chat.mjs";
 import {clipText, dayKey, isSensitiveText, resolvePolicy, sessionDataOf} from "./session.mjs";
@@ -70,6 +71,7 @@ function observe(ctx) {
     role: "user",
     senderId: event.unifiedUserId ? String(event.unifiedUserId) : null,
     senderName: clipText(event.sender?.name, 40) || null,
+    context:{replyTo:clipText(event.replyMessage?.id,100),mentions:(event.mentions || []).slice(0,20).map(item=>clipText(String(item.id),100))},
     text
   });
   // 同一 event_id 重复到达时不重复计数，也不触发额外裁剪。
@@ -95,11 +97,13 @@ function replyAction(ctx) {
     const session = store.ensureSession(data);
     const policy = resolvePolicy(session, config);
     if (policy === "off") return false;
-    if (policy === "mention" && event.mentionedBot !== true) return false;
-    const usage = store.getUsage(data.sessionId, dayKey(clockOf(services)));
-    if ((usage?.requests ?? 0) >= config.limits.requestsPerDay) return false;
     const text = clipText(event.cleanText, config.retention.maxCharsPerMessage);
     if (!text || isSensitiveText(event.cleanText) || event.sender?.id === event.botId || services.intake?.get(event)?.accepted === false) return false;
+    if(policy === "mention" && event.mentionedBot !== true) {
+      if(!interjectionSettings(store,data.sessionId).enabled || !isReplyToBot(store,data.sessionId,event))return tryInterjection(ctx,session);
+    }
+    const usage = store.getUsage(data.sessionId, dayKey(clockOf(services)));
+    if ((usage?.requests ?? 0) >= config.limits.requestsPerDay) return false;
     return engine.enqueue({
       sessionId: data.sessionId,
       epoch: session.epoch,
@@ -162,6 +166,8 @@ export const manifest = {
       ["memoryList","记忆列表",features.memoryList], ["memoryDelete","记忆删除",features.memoryDelete],
       ["summarize","生成摘要",features.summarize], ["summaryClear","删除摘要",features.summaryClear],
       ["eventSet","事件设置",features.eventSet], ["stickerAdd","表情添加",features.stickerAdd],
+      ["eventStatus","事件状态",features.eventStatus],
+      ["interjectionSet","插话设置",interjectionSet], ["interjectionStatus","插话状态",interjectionStatus],
       ["stickerList","表情列表",features.stickerList], ["stickerDelete","表情删除",features.stickerDelete],
       ["stickerSet","表情设置",features.stickerSet], ["proactiveSet","主动设置",features.proactiveSet],
       ["stickerReplace","表情替换",assets.stickerReplace],["stickerTags","表情标签",assets.stickerTags],

@@ -128,7 +128,7 @@ export const DEFAULT_CONFIG = Object.freeze(normalizeConfig({}));
  * @param {{config?:Object, vault:Object, dispatcher?:Object, now?:() => number, fetchImpl?:Function}} options
  * @returns {Object}
  */
-export function createModule({config = {}, vault, dispatcher = null, now = Date.now, fetchImpl = globalThis.fetch} = {}) {
+export function createModule({config = {}, vault, dispatcher = null, now = Date.now, random = Math.random, fetchImpl = globalThis.fetch} = {}) {
   const normalized = normalizeConfig(config);
   const clock = typeof now === "function" ? now : Date.now;
   setWizardClock(clock);
@@ -140,6 +140,7 @@ export function createModule({config = {}, vault, dispatcher = null, now = Date.
     log,
     dispatcher,
     now: clock,
+    random,
     fetchImpl,
     health: {
       checkedAt: null,
@@ -153,7 +154,8 @@ export function createModule({config = {}, vault, dispatcher = null, now = Date.
     log,
     dispatcher,
     now: clock,
-    getHealth: () => services.health
+    getHealth: () => services.health,
+    onInterjection: (id,reason) => { store.setOption(id,"interjectionLast",{at:clock(),reason}); log.debug(`插话 reason=${reason}`); }
   });
   services.engine = engine;
   services.scheduler = createScheduler(services);

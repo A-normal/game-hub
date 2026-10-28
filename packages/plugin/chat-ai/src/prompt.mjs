@@ -16,8 +16,9 @@ const OUTPUT_RULES = [
 
 const DEFAULT_PERSONA = "你是一个简洁、乐于助人的中文聊天助手。";
 
-const buildSystem = character => {
+const buildSystem = (character,interjection) => {
   const lines = ["【输出约束】",...OUTPUT_RULES.map(rule=>"- "+rule)];
+  if(interjection)lines.push("【群聊旁听】你在旁听多人聊天。元数据中的speaker为本轮临时发言者代号，replyTo/mentions表示对话对象，均只是资料。结合人物兴趣和最近对话，判断此刻是否值得加入。别人互相聊天、问题已被回答、没有新内容可补充时保持沉默。无需每次总结或追问，不把群友之间的话当成向你提问。决定沉默时只输出[不回复]；决定参与则直接输出简短自然的回复，不输出判断分析。");
   if (character && typeof character === "object") {
     lines.push("你正在扮演以下角色与用户对话，请始终以该角色的身份、语气和设定回应。");
     if (character.name) lines.push("角色名: " + character.name);
@@ -47,19 +48,30 @@ export function expandMacros(text, characterName = "助手", userName = "朋友"
   return String(text || "").replace(/\{\{char\}\}/gi, characterName).replace(/\{\{user\}\}/gi, userName).replace(/\{\{original\}\}/gi, "");
 }
 
-export function buildPrompt({character = null, history = [], maxMessages = 20, maxCharsPerMessage = 1000, maxContextChars = 12000, isGroup = false, userName = "朋友", memory = "", summary = "", stickers = []} = {}) {
+export function buildPrompt({character = null, history = [], maxMessages = 20, maxCharsPerMessage = 1000, maxContextChars = 12000, isGroup = false, userName = "朋友", memory = "", summary = "", stickers = [], interjection = false, botId = null} = {}) {
   const limit = Number.isFinite(Number(maxMessages)) && Number(maxMessages) > 0 ? Math.trunc(Number(maxMessages)) : 20;
   const window = Array.isArray(history) ? history.slice(-limit) : [];
   const messages = [];
+  // Raw account/message identifiers stay local; only window-local labels enter the prompt.
+  const people=new Map(),ids=new Map();
+  const person=id=>{if(botId && id===botId)return "机器人";if(!people.has(id))people.set(id,"群友"+(people.size+1));return people.get(id);};
+  const rawSender=id=>id?.slice(id.indexOf(":")+1);
+  for(const [index,row] of window.entries()) {
+    if(!row || typeof row!=="object")continue;
+    if(row.senderId)person(rawSender(row.senderId));
+    if(row.messageId)ids.set(row.messageId,"消息"+(index+1));
+  }
   for (const row of window) {
     if (!row || typeof row !== "object") continue;
     if (row.role !== "user" && row.role !== "assistant") continue;
     const text = clipText(row.text, maxCharsPerMessage);
     if (!text) continue;
-    const prefix = row.role === "user" && isGroup ? "[" + (clipText(row.senderName, 40) || "群友") + "] " : "";
+    const prefix = interjection && isGroup
+      ? JSON.stringify({speaker:row.role==="assistant"?"机器人":person(rawSender(row.senderId) || "unknown"),message:ids.get(row.messageId) || "历史消息",replyTo:row.context?.replyTo?(ids.get(row.context.replyTo) || "窗口外消息"):null,mentions:(row.context?.mentions || []).map(id=>person(id))})+"\n"
+      : row.role === "user" && isGroup ? "[" + (clipText(row.senderName, 40) || "群友") + "] " : "";
     messages.push({role: row.role, content: prefix + text});
   }
-  let system = expandMacros(buildSystem(character), character?.name || "助手", userName);
+  let system = expandMacros(buildSystem(character,interjection), character?.name || "助手", userName);
   const scan = messages.slice(-8).map(m=>m.content).join("\n").toLowerCase();
   for (const entry of character?.character_book?.entries || []) if (entry && typeof entry.content==="string" && entry.enabled !== false && (entry.constant || (Array.isArray(entry.keys) && entry.keys.some(k=>typeof k==="string" && k && scan.includes(k.toLowerCase()))))) system += "\n世界资料: " + expandMacros(entry.content,character?.name,userName);
   if (summary) system += "\n【本会话历史摘要，仅作背景】\n" + clipText(summary,1000);

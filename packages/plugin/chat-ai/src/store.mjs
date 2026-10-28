@@ -104,7 +104,8 @@ const mapMessage = row => ({
   senderId: row.sender_id ?? null,
   senderName: row.sender_name ?? null,
   text: row.text,
-  createdAt: Number(row.created_at)
+  createdAt: Number(row.created_at),
+  context: row.context_meta ? JSON.parse(row.context_meta) : {}
 });
 
 const mapModel = row => ({
@@ -135,7 +136,7 @@ export class ChatStore {
     // 可重入建表：插件重复装配或重启都不会丢数据。
     this.db.exec(DDL);
     const migrate = () => {
-      for (const [table, column, definition] of [["chat_models", "connection_id", "TEXT"], ["chat_models","max_context_chars","INTEGER"], ["chat_messages", "branch_id", "TEXT NOT NULL DEFAULT ''"], ["chat_messages", "reply_to_seq", "INTEGER"], ["chat_messages","platform_message_id","TEXT"]]) {
+      for (const [table, column, definition] of [["chat_models", "connection_id", "TEXT"], ["chat_models","max_context_chars","INTEGER"], ["chat_messages", "branch_id", "TEXT NOT NULL DEFAULT ''"], ["chat_messages", "reply_to_seq", "INTEGER"], ["chat_messages","platform_message_id","TEXT"], ["chat_messages","context_meta","TEXT NOT NULL DEFAULT '{}'"]]) {
         if (!this.db.prepare(`PRAGMA table_info(${table})`).all().some(row => row.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
       }
       for (const row of this.db.prepare("SELECT * FROM chat_models WHERE connection_id IS NULL").all()) {
@@ -190,12 +191,12 @@ export class ChatStore {
    * 写入一条消息；返回是否真的新增（同一会话重复 event_id 时被 UNIQUE 忽略）。
    * assistant 行的 event_id 传 null：SQLite 的 NULL 不参与 UNIQUE 冲突。
    */
-  insertMessage({sessionId, eventId = null, role, senderId = null, senderName = null, text, createdAt = null, replyTo = null, messageId = null,sourceSeqs=[]}) {
+  insertMessage({sessionId, eventId = null, role, senderId = null, senderName = null, text, createdAt = null, replyTo = null, messageId = null,sourceSeqs=[],context={}}) {
     const insert=()=>{
       if(messageId && this.db.prepare("SELECT 1 FROM chat_recalls WHERE session_id=? AND message_id=?").get(String(sessionId),String(messageId)))return false;
       const result = this.db.prepare(
-        "INSERT OR IGNORE INTO chat_messages (session_id, event_id, role, sender_id, sender_name, text, created_at, branch_id, reply_to_seq,platform_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(String(sessionId), nullable(eventId), String(role), nullable(senderId), nullable(senderName), String(text ?? ""), createdAt ?? this.now(), this.branchOf(sessionId), replyTo,nullable(messageId));
+        "INSERT OR IGNORE INTO chat_messages (session_id, event_id, role, sender_id, sender_name, text, created_at, branch_id, reply_to_seq,platform_message_id,context_meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run(String(sessionId), nullable(eventId), String(role), nullable(senderId), nullable(senderName), String(text ?? ""), createdAt ?? this.now(), this.branchOf(sessionId), replyTo,nullable(messageId),JSON.stringify(context));
       if(result.changes && messageId)this.db.prepare("INSERT OR IGNORE INTO chat_message_sources VALUES(?,?,?,?)").run(String(sessionId),String(messageId),Number(result.lastInsertRowid),this.branchOf(sessionId));
       if(result.changes && role==="assistant")for(const seq of new Set(sourceSeqs))this.db.prepare("INSERT OR IGNORE INTO chat_dependencies VALUES(?,?,?,?)").run(sessionId,Number(result.lastInsertRowid),seq,this.branchOf(sessionId));
       return Number(result.changes) > 0;
@@ -207,7 +208,7 @@ export class ChatStore {
   recentMessages(sessionId, limit = 20) {
     const size = boundedInt(limit, 20);
     const rows = this.db.prepare(
-      "SELECT seq, role, sender_id, sender_name, text, created_at, reply_to_seq,platform_message_id FROM chat_messages WHERE session_id = ? AND branch_id = ? ORDER BY seq DESC LIMIT ?"
+      "SELECT seq, role, sender_id, sender_name, text, created_at, reply_to_seq,platform_message_id,context_meta FROM chat_messages WHERE session_id = ? AND branch_id = ? ORDER BY seq DESC LIMIT ?"
     ).all(String(sessionId), this.branchOf(sessionId), size);
     return rows.reverse().map(mapMessage);
   }

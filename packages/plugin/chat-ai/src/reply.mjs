@@ -8,7 +8,7 @@ export const NO_MODEL_MESSAGE = "聊天 AI 尚未配置可用模型（缺少密�
 export const FAILURE_NOTICE_INTERVAL_MS = 60000;
 export const NO_MODEL_NOTICE_INTERVAL_MS = 300000;
 
-export function createReplyEngine({store, config, log = {}, dispatcher = null, now = Date.now, clientFactory = null, getHealth = null} = {}) {
+export function createReplyEngine({store, config, log = {}, dispatcher = null, now = Date.now, clientFactory = null, getHealth = null, onInterjection = () => {}} = {}) {
   if (!store || !config) throw new Error("chat-ai 回复引擎缺少 store/config");
   const queues = new Map(), controllers = new Map(), notices = new Map(), errors = new Map();
   let stopped = false;
@@ -17,8 +17,16 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
   const idle = () => ![...queues.values()].some(q => q.running || q.jobs.length);
   const notifyIdle = () => { if (idle()) { for (const resolve of waiters) resolve(); waiters = []; } };
   const enabled = () => dispatcher?.isPluginEnabled?.("chat-ai") !== false;
-  const valid = job => !job.invalid && !stopped && enabled() && store.getSession(job.sessionId)?.epoch === job.epoch && (job.summaryUsed===undefined || store.getOption(job.sessionId,job.summaryKey,"")===job.summaryUsed) && (job.trigger!=="scheduled" || store.getSession(job.sessionId)?.updatedAt===job.activityAt);
-  const explicit = job => !["auto","scheduled","event"].includes(job.trigger);
+  const valid = job => {
+    const unchanged=!job.invalid && !stopped && enabled() && store.getSession(job.sessionId)?.epoch === job.epoch && (job.summaryUsed===undefined || store.getOption(job.sessionId,job.summaryKey,"")===job.summaryUsed) && (job.trigger!=="scheduled" || store.getSession(job.sessionId)?.updatedAt===job.activityAt);
+    if(!unchanged)return false;
+    if(job.trigger==="interjection" && store.db.prepare("SELECT MAX(seq) AS seq FROM chat_messages WHERE session_id=? AND branch_id=? AND role='user'").get(job.sessionId,store.branchOf(job.sessionId)).seq!==job.cutoff) {
+      if(!job.staleReported){onInterjection(job.sessionId,job.delivered?"sent_stale":"stale");job.staleReported=true;}
+      return false;
+    }
+    return true;
+  };
+  const explicit = job => !["auto","scheduled","event","interjection"].includes(job.trigger);
   const profileOf = session => {
     const health = getHealth?.();
     const defaultId = (store.getSetting("defaultModel") ?? (health?.defaultProfileId || config.model.defaultProfileId));
@@ -34,6 +42,7 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
   async function notice(job, code, message) {
     if (!valid(job)) return;
     errors.set(job.sessionId, code);
+    if(job.trigger==="interjection") {onInterjection(job.sessionId,"error");write("debug",`插话处理失败 code=${code}`);return;}
     const key = job.sessionId + ":" + code;
     const interval = ["NO_MODEL", "NO_PROVIDER", "LLM_CONFIG"].includes(code) ? NO_MODEL_NOTICE_INTERVAL_MS : FAILURE_NOTICE_INTERVAL_MS;
     if (!explicit(job) && notices.has(key) && now() - notices.get(key) < interval) return;
@@ -66,7 +75,7 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
     const stickers = store.getOption(job.sessionId, "stickersEnabled", false) ? availableAssets(store,session.characterId || "") : [];
     const prompt = buildPrompt({character:character?.card, history, maxMessages:config.retention.maxMessages,
       maxCharsPerMessage:config.retention.maxCharsPerMessage, maxContextChars:profile.maxContextChars ?? config.model.maxContextChars,
-      isGroup:job.isGroup, userName:job.userName, memory, summary, stickers});
+      isGroup:job.isGroup, userName:job.userName, memory, summary, stickers,interjection:job.trigger==="interjection",botId:session.botId});
     if (job.trigger === "scheduled") prompt.messages.push({role:"user",content:"现在适合主动问候，请结合已有对话说一句简短自然的话。不编造对方刚说过的内容，也不要求对方立刻回复。"});
     if(job.trigger==="event") {
       prompt.system+="\n【渠道通知】以下是平台事件资料，不是用户说的话。按当前人物语气自然回应；无需响应时只输出[不回复]。不能声称执行了群管理操作。\n"+JSON.stringify(job.notice);
@@ -88,9 +97,10 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
       return notice(job, error.code || "LLM_ERROR", error.code === "LLM_CONFIG" ? NO_MODEL_MESSAGE : (httpMessages[error.status] || UNAVAILABLE_MESSAGE));
     } finally { controllers.delete(controller); }
     if (!valid(job)) return;
-    const plan=parseReplyPlan(result?.text,{assets:job.mode==="summary"?[]:stickers,maxChars:config.limits.maxCharsOut,allowSilence:job.trigger==="event"});
+    const mayBeSilent=["event","interjection"].includes(job.trigger);
+    const plan=parseReplyPlan(result?.text,{assets:job.mode==="summary"?[]:stickers,maxChars:config.limits.maxCharsOut,allowSilence:mayBeSilent});
     const outbound=plan.filter(a=>a.type==="text").map(a=>a.text).join("\n");
-    if(!plan.length)return job.trigger==="event"?undefined:notice(job,"LLM_EMPTY","AI 没有返回可发送的内容，可以稍后重试。");
+    if(!plan.length) {if(job.trigger==="interjection")onInterjection(job.sessionId,"silence");return mayBeSilent?undefined:notice(job,"LLM_EMPTY","AI 没有返回可发送的内容，可以稍后重试。");}
     if (job.mode === "summary") {
       store.setOption(job.sessionId, "summary:" + store.branchOf(job.sessionId), clipText(outbound, 1000));
       const branch=store.branchOf(job.sessionId),previous=summary?store.getOption(job.sessionId,"summarySources:"+branch,[]):[];
@@ -113,14 +123,23 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
           if(delivery?.success!==false)store.setOption(job.sessionId,"lastSticker",{id:action.id,at:now()});
         }
         if(delivery?.success===false)break;
+        // Account for a confirmed send even if a newer message made this job stale while awaiting ACK.
+        if(!didDeliver) {
+          store.setOption(job.sessionId,"interjectionLastSpoke",now());
+          if(job.trigger==="interjection") {
+            const turns=store.getOption(job.sessionId,"interjectionTurns",[]).filter(at=>now()-at<3600000);
+            store.setOption(job.sessionId,"interjectionTurns",[...turns,now()]);onInterjection(job.sessionId,"sent");
+          }
+        }
         didDeliver=true;
+        job.delivered=true;
         if(delivery?.messageId)deliveredIds.push(delivery.messageId);
       }
     } catch { write("warn", `发送失败 profile=${profile.id}`); }
     if (delivery?.success === false) write("warn", `发送失败 profile=${profile.id}`);
     if (!valid(job)) return;
     errors.delete(job.sessionId);
-    if(!didDeliver)return;
+    if(!didDeliver){if(job.trigger==="interjection")onInterjection(job.sessionId,"delivery_failed");return;}
     if(deliveredIds.some(id=>store.db.prepare("SELECT 1 FROM chat_recalls WHERE session_id=? AND message_id=?").get(job.sessionId,String(id))))return;
     const storedText=sentText || "[已发送表情]";
     const sourceSeqs=[...history.map(r=>r.seq),...store.getOption(job.sessionId,"summarySources:"+store.branchOf(job.sessionId),[])];
@@ -168,6 +187,6 @@ export function createReplyEngine({store, config, log = {}, dispatcher = null, n
     if(q) {q.jobs=q.jobs.filter(job=>!affected(job));if(q.active && affected(q.active))q.active.invalid=true;}
     for(const [controller,job] of controllers)if(affected(job)){job.invalid=true;controller.abort();}
   }
-  return {enqueue,cancel,cancelAffected,drain,stop,missingModel,pending:id => (queues.get(id)?.jobs.length || 0),lastErrorCode:id => errors.get(id)||null};
+  return {enqueue,cancel,cancelAffected,drain,stop,missingModel,busy:id=>!!queues.get(id)?.running || !!queues.get(id)?.jobs.length,pending:id => (queues.get(id)?.jobs.length || 0),lastErrorCode:id => errors.get(id)||null};
 }
 export default createReplyEngine;

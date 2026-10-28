@@ -133,7 +133,8 @@ export class NapCatGateway {
             const targetDesc = isGroup ? `[群聊 ${payload.group_id}]` : `[私聊]`;
             const senderDesc = `${payload.user_id} (${payload.sender?.nickname || payload.sender?.card || "匿名"})`;
 
-            logger.info("Gateway:Ingress", `${targetDesc} 来自 ${senderDesc} (消息正文不写入日志)`);
+            const eventKind=[payload.post_type,payload.notice_type,payload.sub_type].filter(Boolean).map(value=>String(value).replace(/[^a-zA-Z0-9_-]/g,"").slice(0,40)).join("/");
+            logger.info("Gateway:Ingress", `${targetDesc} 来自 ${senderDesc} 事件=${eventKind} (消息正文不写入日志)`);
 
             // 定义可靠回复闭包：通过带 echo 的 OneBot RPC 发送并等待真实交付确认 (解决 P1-07)
             const sendFunction = async (target, content, replyOpts = {}) => {

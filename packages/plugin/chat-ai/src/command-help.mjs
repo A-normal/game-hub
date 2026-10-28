@@ -46,6 +46,9 @@ export const CHAT_COMMAND_HELP = {
   summarize: entry("调用模型总结并保存当前分支对话", [], "当前会话当前人物分支；需 AI 管理权限", ["消耗一次模型调用额度，原始对话记录保留。"]),
   summaryClear: entry("删除当前分支摘要，保留原始对话", [], "当前会话当前人物分支；需 AI 管理权限"),
   eventSet: {...entry("配置戳一戳、入群等事件回复", ["<on|off>"], "当前会话；需 AI 管理权限", ["整体开启使用固定模板；persona模式会调用模型并消耗额度。", "事件类型：poke戳一戳、join入群、leave离群、recall撤回。"]), usages: [["<on|off>"], ["<poke|join|leave|recall>", "<off|template|persona>", "[模板]"]]},
+  eventStatus: entry("查看事件开关及最近通知未回复的原因"),
+  interjectionSet: {...entry("开启群聊自然插话或调整机会与冷却",["<on|off>"],"当前群聊；需 AI 管理权限",["默认关闭，在mention策略下生效；all保持每条回复，off停止记录与回复。","每个观察窗口只抽签一次；关键词命中也允许模型沉默，判断调用消耗额度。","概率0–100；冷却15–3600秒；窗口5–300秒；每小时1–60次。"],["interjectionStatus","policySet"]),usages:[["<on|off>"],["<概率|关键词概率|续聊概率|冷却|窗口|每小时>","<数值>"],["关键词","<词语列表|清空>"]]},
+  interjectionStatus: entry("查看群聊插话参数和最近判断原因",[],"当前群聊；需 AI 管理权限"),
   stickerAdd: entry("登记表情并上传图片", ["<短ID>", "<名称>"], "仅私聊；全局素材库；需 AI 管理权限", ["指令后单独上传 PNG/JPEG/GIF/WebP 图片，最多4 MiB。"]),
   stickerList: entry("列出已登记表情素材", ["[页码]"], global),
   stickerPreview: entry("预览已登记的表情图片", ["<ID>"], global),
@@ -62,7 +65,7 @@ for (const [id, value] of Object.entries(CHAT_COMMAND_HELP)) {
   value.group = /^(connection|model|defaultModel)/.test(id) ? "服务与模型"
     : id.startsWith("character") ? "人物卡"
     : /^(memory|summarize|summary)/.test(id) ? "记忆与摘要"
-    : /^(sticker|event|proactive)/.test(id) ? "可选行为"
+    : /^(sticker|event|proactive|interjection)/.test(id) ? "可选行为"
     : id.startsWith("ai") ? "管理员" : "会话与帮助";
 }
 
