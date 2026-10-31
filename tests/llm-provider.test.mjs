@@ -96,7 +96,7 @@ test("连接类失败：重试 1 次后成功；连续失败共 2 次调用后 L
 test("密钥引用白名单：系统变量与前缀不符在创建 client 时即拒绝，合法引用通过", async t => {
   const restoreMain = withEnv("CHATAI_KEY_MAIN", "sk-live-456"); t.after(restoreMain);
   const previousUnset = process.env.CHATAI_KEY_UNSET; delete process.env.CHATAI_KEY_UNSET; t.after(() => { if (previousUnset !== undefined) process.env.CHATAI_KEY_UNSET = previousUnset; });
-  for (const apiKeyEnv of ["GAMEHUB_TOKEN", "VAULT_SECRET", "ACCESS_TOKEN", "MASTER_QQ", "GAMEHUB_ADMIN_USERS", "MY_KEY", "", "CHATAI_KEY_lower"]) {
+  for (const apiKeyEnv of ["NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN", "GAMEHUB_ADMIN_REGISTRATION_TOKEN", "CHATAI_ADMIN_REGISTRATION_TOKEN", "GAMEHUB_TOKEN", "CHATAI_ADMIN_TOKEN", "VAULT_SECRET", "ACCESS_TOKEN", "MASTER_QQ", "GAMEHUB_ADMIN_USERS", "MY_KEY", "", "CHATAI_KEY_lower"]) {
     const error = configError(() => new LlmClient({...profile(), apiKeyEnv}));
     assert.equal(error?.code, "LLM_CONFIG", apiKeyEnv || "<空>");
     assert.ok(!String(error.message).includes("sk-live-456"));

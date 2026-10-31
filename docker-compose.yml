@@ -18,9 +18,11 @@ services:
       GAMEHUB_HOST: 0.0.0.0
       GAMEHUB_PORT: 8080
       GAMEHUB_PATH: /onebot/v11/ws
-      GAMEHUB_TOKEN: ${GAMEHUB_TOKEN:-gamehub_secret_token_2026}
+      NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN: ${NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN:-gamehub_secret_token_2026}
+      GAMEHUB_ADMIN_REGISTRATION_TOKEN: ${GAMEHUB_ADMIN_REGISTRATION_TOKEN:-}
+      GAMEHUB_ADMIN_USERS: ${GAMEHUB_ADMIN_USERS:-}
       CHATAI_KEY_MAIN: ${CHATAI_KEY_MAIN:-}
-      CHATAI_ADMIN_TOKEN: ${CHATAI_ADMIN_TOKEN:-}
+      CHATAI_ADMIN_REGISTRATION_TOKEN: ${CHATAI_ADMIN_REGISTRATION_TOKEN:-}
       GAMEHUB_DB: /app/data/vault.db
     volumes:
       # 持久化统一身份保密库 (vault.db)，优先写入全局 DATA_ROOT，支持相对路径回退
@@ -40,6 +42,7 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
+      # 从部署用私有 .env 的 QQ_ACCOUNT 读取快速登录账号，不在 Compose 中填写真实值
       ACCOUNT: ${QQ_ACCOUNT:-}
       WS_ENABLE: "true"
       NAPCAT_GID: ${PGID:-1000}

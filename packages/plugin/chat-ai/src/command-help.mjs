@@ -34,7 +34,7 @@ export const CHAT_COMMAND_HELP = {
   policySet: entry("设置关闭、仅被@或始终回复", ["<off|mention|all|跟随全局>"], "当前会话；需 AI 管理权限", ["off关闭记录和回复；mention仅被@时回复；all处理普通文本。私聊只接受off或all。","跟随全局移除本会话覆盖，全局可分别配置群聊与私聊策略。"]),
   contextShow: entry("查看当前人物分支的对话上下文状态"),
   contextClear: entry("清空当前人物分支的对话与摘要", [], "当前会话当前人物分支；需 AI 管理权限", ["取消依赖旧上下文的回复；显式长期记忆保留。"], ["memoryList", "summaryClear"]),
-  aiAuth: entry("使用令牌认证为 AI 管理员", ["<token>"], "仅私聊；当前用户", ["系统管理员默认拥有 AI 管理权限；请勿在群聊发送令牌。"]),
+  aiAuth: entry("使用注册令牌登记为 AI 插件管理员", ["<注册令牌>"], "仅私聊；当前用户", ["注册令牌由维护者配置 CHATAI_ADMIN_REGISTRATION_TOKEN，只授予 AI 插件管理权限。", "系统管理员默认拥有 AI 管理权限；请勿在群聊发送令牌。"]),
   aiAdminList: entry("列出 AI 管理员", [], global),
   aiAdminRemove: entry("撤销用户的 AI 管理员身份", ["<统一用户ID>"], "仅系统管理员；全局配置", ["不会撤销该用户已有的系统管理员身份。"]),
   retry: entry("重新生成当前分支最近问题的回答"),

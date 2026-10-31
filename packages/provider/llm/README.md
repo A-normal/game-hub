@@ -72,7 +72,7 @@ Content-Type: application/json
 ## 安全规则（创建 client 时立即校验，失败抛 `LLM_CONFIG`）
 
 1. `apiKeyEnv` 必须匹配 `^CHATAI_KEY_[A-Z0-9_]{1,56}$`，且必须先通过显式 denylist
-   （`GAMEHUB_TOKEN`、`VAULT_SECRET`、`ACCESS_TOKEN`、`MASTER_QQ`、`GAMEHUB_ADMIN_USERS`）——
+   （`NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN`、`GAMEHUB_ADMIN_REGISTRATION_TOKEN`、`CHATAI_ADMIN_REGISTRATION_TOKEN`、`VAULT_SECRET`、`GAMEHUB_ADMIN_USERS`，以及旧名 `GAMEHUB_TOKEN`、`CHATAI_ADMIN_TOKEN`、`ACCESS_TOKEN`、`MASTER_QQ`）——
    即使前缀规则将来放宽，系统变量也不可能被引用为模型密钥。
 2. 端点必须能被 `new URL()` 解析，默认只允许 `https:`；`allowInsecureHttp:true` 才允许 `http:`。
 3. 主机为 `localhost`、`127.0.0.0/8`、`::1`、`0.0.0.0`、`*.local` 或私有网段字面量

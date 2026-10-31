@@ -21,7 +21,7 @@ function resolveEnvironment(value, env) {
 /** Import only explicitly enabled local modules under their declared category. */
 export async function assembleModules({ root, config, vault, env = process.env, importModule = url => import(url), adminToken }) {
   if (config.version !== 1 || !Array.isArray(config.modules)) throw new Error("无效模块配置版本");
-  const dispatcher = new GameHubDispatcher({ vault, adminToken });
+  const dispatcher = new GameHubDispatcher({ vault, adminToken, env });
   const resolvedRoot = await fs.realpath(root);
   const channels = [];
   const disposables = [];

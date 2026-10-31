@@ -83,18 +83,18 @@ test("!AI认证：仅私聊，密钥未配置/错误/成功判定", async t => {
   assert.equal(out.status, "DENIED");
   assert.match(out.reply, /私聊/);
 
-  // CHATAI_ADMIN_TOKEN 未配置
-  const restoreEmpty = withEnv("CHATAI_ADMIN_TOKEN", undefined);
+  // CHATAI_ADMIN_REGISTRATION_TOKEN 未配置
+  const restoreEmpty = withEnv("CHATAI_ADMIN_REGISTRATION_TOKEN", undefined);
   try {
     out = await dispatch("!AI认证 token123");
     assert.equal(out.status, "DENIED");
-    assert.match(out.reply, /未配置 AI 管理员密钥（CHATAI_ADMIN_TOKEN）/);
+    assert.match(out.reply, /未配置 AI 管理员注册令牌（CHATAI_ADMIN_REGISTRATION_TOKEN）/);
   } finally {
     restoreEmpty();
   }
 
   // 配置正确 token
-  const restoreEnv = withEnv("CHATAI_ADMIN_TOKEN", "ai-secret-888");
+  const restoreEnv = withEnv("CHATAI_ADMIN_REGISTRATION_TOKEN", "ai-secret-888");
   t.after(restoreEnv);
 
   // token 错误
@@ -113,12 +113,23 @@ test("!AI认证：仅私聊，密钥未配置/错误/成功判定", async t => {
   assert.match(out.reply, /【聊天 AI 指令手册】/);
 });
 
+test("AI 管理员注册只读取明确的新字段，不回退旧 CHATAI_ADMIN_TOKEN", async t => {
+  const vault = new IdentityVault(":memory:"); t.after(() => vault.close());
+  const { dispatch } = setup({ vault });
+  const restoreNew = withEnv("CHATAI_ADMIN_REGISTRATION_TOKEN", undefined);
+  const restoreOld = withEnv("CHATAI_ADMIN_TOKEN", "legacy-ai-token");
+  t.after(restoreNew); t.after(restoreOld);
+  const out = await dispatch("!AI认证 legacy-ai-token");
+  assert.equal(out.status, "DENIED");
+  assert.match(out.reply, /未配置 AI 管理员注册令牌（CHATAI_ADMIN_REGISTRATION_TOKEN）/);
+});
+
 test("!AI管理员列表与删除：系统管理员不可删，AI 管理员可删且删除后降权", async t => {
   const vault = new IdentityVault(":memory:");
   t.after(() => vault.close());
   const {dispatcher, dispatch} = setup({vault});
 
-  const restoreEnv = withEnv("CHATAI_ADMIN_TOKEN", "ai-secret-888");
+  const restoreEnv = withEnv("CHATAI_ADMIN_REGISTRATION_TOKEN", "ai-secret-888");
   t.after(restoreEnv);
 
   // mock:ai_user1 认证

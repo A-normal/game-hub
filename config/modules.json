@@ -12,7 +12,7 @@
         "host": { "$env": "GAMEHUB_HOST", "default": "127.0.0.1" },
         "port": { "$env": "GAMEHUB_PORT", "default": 8080, "as":"number" },
         "path": { "$env": "GAMEHUB_PATH", "default": "/onebot/v11/ws" },
-        "accessToken": { "$env": "GAMEHUB_TOKEN", "required": true }
+        "accessToken": { "$env": "NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN", "required": true }
       }
     },
     { "kind": "provider", "id": "llm", "entry": "packages/provider/llm/src/index.mjs" },

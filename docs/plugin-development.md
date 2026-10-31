@@ -84,6 +84,9 @@ chatAi 可以声明显式命令以及普通聊天兜底，但不得抢占业务�
 ## 数据、权限与错误
 
 - 使用标准事件的 unifiedUserId、platform、sender.id；原始平台用户标识不从正文解析。当前事件没有 originalId 契约。
+- 系统管理员注册由 core 的 SystemAdministration 与系统“认证”路由统一处理。渠道只适配平台认证后的发送者身份、原始指令和回复，不配置或验证 GAMEHUB_ADMIN_REGISTRATION_TOKEN；渠道连接鉴权仍属于渠道职责。
+- 系统管理员只按完整 platform:user-id 匹配，不使用裸 sender.id、昵称、群管理员身份或 MASTER_QQ 自动提权。注册接口只授权私聊发送者本人；其他身份的授予/撤销须经过已有系统管理员权限检查。
+- 注册密钥从启动环境注入核心，不回退使用 NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN/ACCESS_TOKEN，不暴露在渠道配置、日志、帮助、AI 上下文或 Vault。环境预置身份与持久注册身份来源分离，名单写入失败不得改变有效权限；更多状态规则见[部署操作说明](../packages/core/README.md#系统管理员注册与权限)。
 - 网络调用有界超时和重试；HTTP、业务返回码、凭据失效、未解锁、无数据和服务失败分别处理。
 - 签名与实际 query/body 一致，区服、设备及凭据类型显式区分。
 - 数据按适用的用户、账号、游戏、区服、群和周期隔离；多人共享社区账号也应分别选择主角色。

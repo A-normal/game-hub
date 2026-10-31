@@ -8,7 +8,7 @@
 
 ## 最短使用路径
 
-运行环境提供 `CHATAI_KEY_MAIN`。需要独立 AI 管理员认证时另提供 `CHATAI_ADMIN_TOKEN`；系统管理员天然具有 AI 管理权限。密钥仍由维护者放入环境，本轮不实现环境文件托管或密钥修改指令。
+运行环境提供 `CHATAI_KEY_MAIN`。需要独立 AI 管理员认证时另提供 `CHATAI_ADMIN_REGISTRATION_TOKEN`；系统管理员天然具有 AI 管理权限。密钥仍由维护者放入环境，本轮不实现环境文件托管或密钥修改指令。
 
 1. 管理员私聊发送 `!设置` 查看当前状态。
 2. `!连接新增`：按向导填写显示名称、OpenAI 兼容 base URL、密钥环境变量名。地址示例为 `https://api.example.com/v1`，不要照抄成实际服务。

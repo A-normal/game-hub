@@ -127,7 +127,7 @@ export function withAdmin(action) {
 }
 
 /**
- * !AI认证 <token>：仅私聊，timingSafeEqual 比较 CHATAI_ADMIN_TOKEN。
+ * !AI认证 <token>：仅私聊，timingSafeEqual 比较 CHATAI_ADMIN_REGISTRATION_TOKEN。
  * 成功后把 unifiedUserId 加入 AI 管理员列表。
  * @param {Object} ctx
  */
@@ -137,9 +137,9 @@ export async function aiAuth(ctx) {
     await event.reply("【权限拒绝】AI 管理员认证仅支持私聊发起。");
     return {status: "DENIED"};
   }
-  const expectedToken = process.env.CHATAI_ADMIN_TOKEN;
+  const expectedToken = process.env.CHATAI_ADMIN_REGISTRATION_TOKEN;
   if (typeof expectedToken !== "string" || !expectedToken.trim()) {
-    await event?.reply?.("未配置 AI 管理员密钥（CHATAI_ADMIN_TOKEN），请联系系统管理员。");
+    await event?.reply?.("未配置 AI 管理员注册令牌（CHATAI_ADMIN_REGISTRATION_TOKEN），请联系系统管理员。");
     return {status: "DENIED"};
   }
   const input = String((ctx?.args || [])[0] || "");

@@ -1,6 +1,6 @@
 import {replyCommandHelp} from "./help.mjs";
 import {SYSTEM_COMMAND_HELP} from "./system-help.mjs";
-import crypto from "node:crypto";
+import { SystemAdministration, resolveSystemAdministration } from "../auth/system-administration.mjs";
 import { logger } from "../logger/logger.mjs";
 import { InboundShaper } from "../shaper/inbound-shaper.mjs";
 
@@ -13,18 +13,17 @@ const normalizedNamespace = config => ({
 });
 
 export class GameHubDispatcher {
-  constructor({ vault = null, adminToken, adminUsers = [] } = {}) {
+  constructor({ vault = null, adminToken, adminUsers = [], env = process.env } = {}) {
     this.vault = vault;
-    this.adminToken = adminToken ?? process.env.GAMEHUB_TOKEN ?? process.env.ACCESS_TOKEN ?? "";
+    this.administration = new SystemAdministration({ vault, ...resolveSystemAdministration({ env, adminToken, adminUsers }) });
     this.plugins = new Map();
     this.providers = new Map();
     this.channels = new Map();
     this.shortcuts = new Map();
     this.pluginStates = new Map();
     this.namespaces = new Map();
-    this.adminUsers = new Set(adminUsers);
+    this.adminUsers = this.administration.adminUsers;
     this.startTime = Date.now();
-    for (const id of (process.env.GAMEHUB_ADMIN_USERS || process.env.MASTER_QQ || "").split(/[,，;]/).filter(Boolean)) this.adminUsers.add(id);
     this._restorePersistedSettings();
     this._registerSystemPlugin();
   }
@@ -35,25 +34,16 @@ export class GameHubDispatcher {
       if (value && typeof value === "object") this.namespaces.set(key.slice(10), normalizedNamespace(value));
     }
     for (const [key, value] of Object.entries(this.vault.getAllSettings("plugin_state:"))) this.pluginStates.set(key.slice(13), typeof value === "object" ? Boolean(value.enabled) : Boolean(value));
-    for (const id of this.vault.getSetting("system:admin_users", [])) this.adminUsers.add(String(id));
   }
 
   isAdmin(event) {
-    if (!event) return false;
-    if (this.adminUsers.has(event.unifiedUserId)) return true;
-    const raw = event.sender?.id ?? event.originalId;
-    return raw !== undefined && this.adminUsers.has(String(raw));
+    return this.administration.isAdmin(event);
   }
   addAdmin(id) {
-    if (!id) return false;
-    this.adminUsers.add(String(id));
-    this.vault?.setSetting("system:admin_users", [...this.adminUsers]);
-    return true;
+    return this.administration.addAdmin(id);
   }
   removeAdmin(id) {
-    const deleted = this.adminUsers.delete(String(id));
-    this.vault?.setSetting("system:admin_users", [...this.adminUsers]);
-    return deleted;
+    return this.administration.removeAdmin(id);
   }
 
   registerProvider(provider) {
@@ -246,7 +236,7 @@ export class GameHubDispatcher {
   async _execute(event, plugin, route, token, args, argumentText) {
     const ctx = this._context(event, plugin, route, token, args, argumentText);
     if (route.admin && !this.isAdmin(event)) {
-      await event.reply("【权限拒绝】该指令仅限管理员执行。请私聊使用 " + this.formatCommand({ pluginId: "system", routeId: "auth", args: ["<Token>"] }));
+      await event.reply("【权限拒绝】该指令仅限管理员执行。请私聊使用 " + this.formatCommand({ pluginId: "system", routeId: "auth", args: ["<注册令牌>"] }));
       return result(RouteStatus.DENIED);
     }
     try {
@@ -349,13 +339,18 @@ export class GameHubDispatcher {
           });
         }),
         route("auth", ["认证"], async ctx => {
-          if (ctx.event.isGroup) { await ctx.event.reply("请在私聊中认证管理员。"); return result(RouteStatus.DENIED); }
-          const input = ctx.args[0] || "";
-          const supplied = Buffer.from(input);
-          const expected = Buffer.from(this.adminToken);
-          if (!expected.length || supplied.length !== expected.length || !crypto.timingSafeEqual(supplied, expected)) { await ctx.event.reply("管理员认证失败：Token 错误或无效！"); return result(RouteStatus.DENIED); }
-          this.addAdmin(ctx.event.unifiedUserId);
-          await ctx.event.reply("【管理员认证成功】\n" + ctx.commands.format({ routeId: "help" }));
+          const registration = this.administration.register(ctx.event, ctx.args.length === 1 ? ctx.args[0] : null);
+          if (!registration.success) {
+            const messages = {
+              PRIVATE_ONLY: "请在私聊中认证管理员。",
+              REGISTRATION_DISABLED: "系统管理员注册未开启：未配置 GAMEHUB_ADMIN_REGISTRATION_TOKEN，请联系部署维护者。",
+              INVALID_IDENTITY: "管理员认证失败：渠道用户身份不完整或不一致。",
+              INVALID_TOKEN: "管理员认证失败：注册令牌错误或参数无效。"
+            };
+            await ctx.event.reply(messages[registration.code]);
+            return result(RouteStatus.DENIED);
+          }
+          await ctx.event.reply("【管理员认证成功】" + (registration.alreadyRegistered ? "当前身份已是系统管理员。" : "当前渠道身份已登记为系统管理员。") + "\n" + ctx.commands.format({ routeId: "help" }));
         }, false),
         route("status", ["状态"], async ctx => {
           await ctx.event.reply("【Game-Hub 总线微内核运行状态】\n运行秒数: " + Math.floor((Date.now() - this.startTime) / 1000) + "\n插件: " + this.plugins.size + "\n社区驱动: " + this.providers.size + " 个 ([" + [...this.providers.keys()].join(",") + "])");
@@ -394,9 +389,15 @@ export class GameHubDispatcher {
             await ctx.event.reply("命名空间更新被拒绝：" + (error.publicMessage || error.message || "请检查插件ID、别名冲突和参数。"));
           }
         }),
-        route("admins", ["管理员列表"], async ctx => { await ctx.event.reply("管理员列表:\n" + [...this.adminUsers].join("\n")); }),
-        route("addAdmin", ["添加管理"], async ctx => { await ctx.event.reply(this.addAdmin(ctx.args[0]) ? "已添加管理员" : "请提供用户标识"); }),
-        route("removeAdmin", ["移除管理"], async ctx => { await ctx.event.reply(this.removeAdmin(ctx.args[0]) ? "已移除管理员" : "未找到管理员"); }),
+        route("admins", ["管理员列表"], async ctx => { await ctx.event.reply("管理员列表:\n" + this.administration.list().map(({id,source}) => id + (source === "configuration" ? "（环境预置）" : "（已注册）")).join("\n")); }),
+        route("addAdmin", ["添加管理"], async ctx => {
+          await ctx.event.reply(ctx.args.length === 1 && this.addAdmin(ctx.args[0]) ? "已添加管理员（已有授权保持不变）" : "请提供完整的平台:用户ID；用法：" + ctx.commands.format({routeId:"addAdmin",args:["<平台:用户ID>"]}));
+        }),
+        route("removeAdmin", ["移除管理"], async ctx => {
+          if (ctx.args.length !== 1) { await ctx.event.reply("用法：" + ctx.commands.format({routeId:"removeAdmin",args:["<平台:用户ID>"]})); return; }
+          if (this.administration.isConfigured(ctx.args[0])) { await ctx.event.reply("该管理员由 GAMEHUB_ADMIN_USERS 环境配置预置；请由部署维护者移出配置并重新载入，当前权限未撤销。"); return; }
+          await ctx.event.reply(this.removeAdmin(ctx.args[0]) ? "已移除管理员" : "未找到已注册管理员；请使用完整的平台:用户ID。");
+        }),
         route("log", ["日志级别"], async ctx => {
           const level = String(ctx.args[0] || "").toUpperCase();
           if (!["DEBUG", "INFO", "WARN", "ERROR", "SILENT"].includes(level)) { await ctx.event.reply("级别可选 DEBUG / INFO / WARN / ERROR / SILENT"); return; }

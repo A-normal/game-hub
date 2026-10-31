@@ -17,7 +17,7 @@ npm test
 人工启动应用前，配置访问令牌和数据路径：
 
 ```powershell
-$env:GAMEHUB_TOKEN = '<自行生成的访问令牌>'
+$env:NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN = '<自行生成的访问令牌>'
 $env:GAMEHUB_DB = 'C:\your-data\game-hub\vault.db'
 npm start
 ```
@@ -26,17 +26,33 @@ npm start
 
 | 环境变量 | 现有入口用途 |
 | --- | --- |
-| `GAMEHUB_HOST` / `GAMEHUB_PORT` | 监听地址与端口，本地默认 `127.0.0.1:8080` |
-| `GAMEHUB_PATH` | OneBot 路径，默认 `/onebot/v11/ws` |
-| `GAMEHUB_TOKEN` | 网关鉴权令牌，部署时自行生成并与渠道配置保持一致 |
+| `GAMEHUB_HOST` / `GAMEHUB_PORT` / `GAMEHUB_PATH` | [NapCat 渠道网关配置](../packages/channel/napcat/README.md#其他渠道环境配置) |
+| `NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN` | [NapCat 渠道连接令牌](../packages/channel/napcat/README.md#napcat-连接-game-hub-的令牌) |
+| `GAMEHUB_ADMIN_REGISTRATION_TOKEN` | [core 系统管理员注册令牌](../packages/core/README.md#系统管理员注册与权限) |
 | `GAMEHUB_DB` | SQLite 文件路径，默认 `data/vault.db` |
 | `GAMEHUB_CONFIG` | 模块装配 JSON 路径，默认 `config/modules.json` |
-| `GAMEHUB_ADMIN_USERS` | 初始管理员标识，逗号分隔 |
+| `GAMEHUB_ADMIN_USERS` | [core 可选环境预置管理员](../packages/core/README.md#系统管理员注册与权限) |
 | `GAMEHUB_LOG_LEVEL` | `DEBUG` / `INFO` / `WARN` / `ERROR` / `SILENT` |
 | `CHATAI_KEY_*` | 大语言模型密钥（匹配 `^CHATAI_KEY_[A-Z0-9_]{1,56}$`，**只按该前缀读取，不入库**） |
-| `CHATAI_ADMIN_TOKEN` | 聊天 AI 管理员认证令牌（`!AI认证 <token>` 私聊使用；留空表示不允许自助认证，仅系统管理员可操作） |
+| `CHATAI_ADMIN_REGISTRATION_TOKEN` | [chat-ai 插件管理员注册令牌](../packages/plugin/chat-ai/README.md#ai-插件管理员注册令牌) |
 
 模型档案用管理员指令维护，密钥只放容器环境，严禁写入数据库或日志。
+
+## 系统管理员注册与权限
+
+系统管理员注册、授权来源、持久化、撤销与升级规则由 [core 包](../packages/core/README.md#系统管理员注册与权限)维护。本页只记录部署入口，不重复定义权限语义。
+
+### 令牌文档入口
+
+环境变量按“连接双方或权限范围 + 用途”命名，详细字段契约放在所属包内。根 `.env.example` 汇总当前部署需要的变量；不因文档按包组织而拆分实际环境文件或改变加载方式。
+
+| 变量 | 所属包与详细说明 |
+| --- | --- |
+| `NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN` | [NapCat 渠道：连接鉴权、双方配置与旧名迁移](../packages/channel/napcat/README.md#napcat-连接-game-hub-的令牌) |
+| `GAMEHUB_ADMIN_REGISTRATION_TOKEN` / `GAMEHUB_ADMIN_USERS` | [core：系统管理员注册、预置名单与授权管理](../packages/core/README.md#系统管理员注册与权限) |
+| `CHATAI_ADMIN_REGISTRATION_TOKEN` | [chat-ai 插件：独立 AI 管理员注册与旧名迁移](../packages/plugin/chat-ai/README.md#ai-插件管理员注册令牌) |
+
+实际部署若使用仓库外的 Compose，需在那里同步环境映射；修改私有环境文件后重建相应容器，单纯 restart 不会载入新值。真实值不写入模板或仓库，部署与备份操作由维护者执行。
 
 ## Compose
 
@@ -54,6 +70,10 @@ docker compose build gamehub
 - 停止写入后备份完整持久化目录，或使用 SQLite 在线备份接口；写入期间不能只复制主 `.db` 而遗漏 WAL。备份包含凭据，应独立保护。
 - 更新后检查 `docker compose ps`、`docker compose logs --tail 100 gamehub`，再验收真实登录和查询。构建成功不代表官方接口验收通过。
 - 回滚使用旧镜像和兼容备份，不直接删库。新增迁移必须说明版本、兼容范围及恢复步骤。
+
+### NapCat 启动时快速登录
+
+`QQ_ACCOUNT`、QQ 登录数据挂载及前台重建步骤统一见 [NapCat 渠道包](../packages/channel/napcat/README.md#其他渠道环境配置)。
 
 ## 账号存储与验收
 

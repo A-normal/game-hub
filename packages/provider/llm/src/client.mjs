@@ -12,7 +12,7 @@ const MAX_ATTEMPTS = 2;
 /** 模型密钥只能通过 CHATAI_KEY_ 前缀的环境变量引用。 */
 export const API_KEY_ENV_PATTERN = /^CHATAI_KEY_[A-Z0-9_]{1,56}$/;
 /** 即使前缀规则放宽，这些系统敏感变量也永远不允许被引用。 */
-export const API_KEY_ENV_DENYLIST = Object.freeze(["GAMEHUB_TOKEN", "VAULT_SECRET", "ACCESS_TOKEN", "MASTER_QQ", "GAMEHUB_ADMIN_USERS"]);
+export const API_KEY_ENV_DENYLIST = Object.freeze(["NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN", "GAMEHUB_ADMIN_REGISTRATION_TOKEN", "CHATAI_ADMIN_REGISTRATION_TOKEN", "GAMEHUB_TOKEN", "CHATAI_ADMIN_TOKEN", "VAULT_SECRET", "ACCESS_TOKEN", "MASTER_QQ", "GAMEHUB_ADMIN_USERS"]);
 const DENIED_KEY_ENVS = new Set(API_KEY_ENV_DENYLIST);
 const PRIVATE_IPV4 = [/^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./, /^169\.254\./, /^127\./];
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
