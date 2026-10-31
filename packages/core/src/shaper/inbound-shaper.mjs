@@ -17,7 +17,10 @@ export class InboundShaper {
     return text
       .replace(/((?:绑定设备|设备配置)\s+)[\s\S]*/gi, "$1***")
       .replace(/(["']?(?:oaid|deviceFingerprint|deviceName|deviceBoard|deviceModel|deviceProduct|device_id|device_fp)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi, "$1***")
-      .replace(/((?:["']?(?:ltoken(?:_v2)?|stoken(?:_v2)?|cookie_token(?:_v2)?|login_ticket|ticket|authkey|access_token|refresh_token|password|GAMEHUB_ADMIN_REGISTRATION_TOKEN|NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN|CHATAI_ADMIN_REGISTRATION_TOKEN|GAMEHUB_TOKEN|CHATAI_ADMIN_TOKEN)["']?)\s*[:=]\s*["']?)[^\s;,&"'\]}]+/gi, "$1***")
+      .replace(/((?:["']?(?:ltoken(?:_v2)?|stoken(?:_v2)?|cookie_token(?:_v2)?|login_ticket|ticket|authkey|access_token|refresh_token|password|GAMEHUB_ADMIN_REGISTRATION_TOKEN|NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN|CHATAI_ADMIN_REGISTRATION_TOKEN|TELEGRAM_BOT_API_TOKEN|botApiToken|GAMEHUB_TOKEN|CHATAI_ADMIN_TOKEN)["']?)\s*[:=]\s*["']?)[^\s;,&"'\]}]+/gi, "$1***")
+      .replace(/(\/(?:file\/)?bot)[0-9]+:[A-Za-z0-9_-]+/gi, "$1***")
+      .replace(/\b[0-9]{5,}:[A-Za-z0-9_-]{20,}\b/g, "***")
+      .replace(/(https?:\/\/)[^/\s@]+@/gi, "$1***@")
       .replace(/((?:stoken|ltoken|cookie_token|authkey|ticket|access_token)(?:_v2)?%3[dD])[^&\s]+/gi, "$1***")
       .replace(/(authorization\s*[:=]\s*["']?(?:Bearer\s+)?)[^\s,"'}]+/gi, "$1***")
       .replace(/(ltoken(?:_v2)?=)[^;\s]+/gi, "$1***")

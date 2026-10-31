@@ -2,12 +2,12 @@ import crypto from "node:crypto";
 import {clearDraft} from "./wizard.mjs";
 import {parseCharacterCard} from "./character.mjs";
 import {hasChatAdmin} from "./admin.mjs";
-import {sessionDataOf,clipText,isSensitiveText} from "./session.mjs";
+import {sessionDataOf,clipText,isSensitiveText,draftKeyOf} from "./session.mjs";
 import {validateChatEndpoint,validateApiKeyEnvName} from "./health.mjs";
 import {configurationSettings} from "./preferences.mjs";
 
 const selections = new Map(), drafts = new Map();
-const key = e => [e.platform,e.botId,e.unifiedUserId].join(":");
+const key = draftKeyOf;
 const clock = ctx => ctx.services.now?.() ?? Date.now();
 const command = (ctx,id,args=[]) => ctx.commands.format({routeId:id,args});
 const fail = message => { throw Object.assign(new Error(message),{publicMessage:message}); };

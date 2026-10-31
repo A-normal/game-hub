@@ -21,6 +21,9 @@ services:
       NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN: ${NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN:-gamehub_secret_token_2026}
       GAMEHUB_ADMIN_REGISTRATION_TOKEN: ${GAMEHUB_ADMIN_REGISTRATION_TOKEN:-}
       GAMEHUB_ADMIN_USERS: ${GAMEHUB_ADMIN_USERS:-}
+      TELEGRAM_BOT_API_TOKEN: ${TELEGRAM_BOT_API_TOKEN:-}
+      TELEGRAM_BOT_API_HTTPS_PROXY_URL: ${TELEGRAM_BOT_API_HTTPS_PROXY_URL:-}
+      TELEGRAM_BOT_API_BASE_URL: ${TELEGRAM_BOT_API_BASE_URL:-https://api.telegram.org}
       CHATAI_KEY_MAIN: ${CHATAI_KEY_MAIN:-}
       CHATAI_ADMIN_REGISTRATION_TOKEN: ${CHATAI_ADMIN_REGISTRATION_TOKEN:-}
       GAMEHUB_DB: /app/data/vault.db
@@ -35,6 +38,7 @@ services:
   # 2. NapCat QQ NT 协议客户端容器 (官方镜像)
   # ============================================================================
   napcat:
+    profiles: ["napcat"]
     image: mlikiowa/napcat-docker:latest
     container_name: napcat-service
     restart: unless-stopped

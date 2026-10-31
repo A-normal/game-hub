@@ -91,7 +91,7 @@ export async function proactiveSet(ctx) {
   if(!Number.isInteger(minutes) || (minutes!==0 && (minutes<5 || minutes>1440)))return ctx.event.reply("请输入5至1440分钟；0表示关闭。");
   const id="idle-"+crypto.createHash("sha256").update(d.sessionId).digest("hex").slice(0,20);
   if(minutes===0) {store.db.prepare("DELETE FROM chat_jobs WHERE id=? AND session_id=?").run(id,d.sessionId);store.bumpEpoch(d.sessionId);ctx.services.engine.cancel(d.sessionId);scheduler?.refresh();return ctx.event.reply("本会话主动发言已关闭。");}
-  const target={platform:ctx.event.platform,botId:ctx.event.botId,isGroup:!!ctx.event.isGroup,groupId:ctx.event.groupId,userId:ctx.event.sender.id,owner:ctx.event.unifiedUserId,ownerRaw:ctx.event.sender.id};
+  const target={platform:ctx.event.platform,botId:ctx.event.botId,isGroup:!!ctx.event.isGroup,groupId:ctx.event.groupId,chatId:ctx.event.chatId,threadId:ctx.event.threadId,userId:ctx.event.sender.id,owner:ctx.event.unifiedUserId,ownerRaw:ctx.event.sender.id};
   const now=ctx.services.now();
   store.db.prepare("INSERT INTO chat_jobs(id,session_id,target,interval_ms,next_run,enabled) VALUES(?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET target=excluded.target,interval_ms=excluded.interval_ms,next_run=excluded.next_run,enabled=1").run(id,d.sessionId,JSON.stringify(target),minutes*60000,now+minutes*60000);
   scheduler?.refresh();

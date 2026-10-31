@@ -7,12 +7,20 @@
       "namespace": { "prefix": "*", "aliases": ["zzz", "绝区零"], "priority": 100 }
     },
     {
-      "kind": "channel", "id": "napcat", "entry": "packages/channel/napcat/src/index.mjs",
+      "kind": "channel", "id": "napcat", "entry": "packages/channel/napcat/src/index.mjs", "enabled": false,
       "config": {
         "host": { "$env": "GAMEHUB_HOST", "default": "127.0.0.1" },
         "port": { "$env": "GAMEHUB_PORT", "default": 8080, "as":"number" },
         "path": { "$env": "GAMEHUB_PATH", "default": "/onebot/v11/ws" },
         "accessToken": { "$env": "NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN", "required": true }
+      }
+    },
+    {
+      "kind": "channel", "id": "telegram", "entry": "packages/channel/telegram/src/index.mjs",
+      "config": {
+        "botApiToken": { "$env": "TELEGRAM_BOT_API_TOKEN", "required": true },
+        "httpsProxyUrl": { "$env": "TELEGRAM_BOT_API_HTTPS_PROXY_URL", "default": "" },
+        "apiBaseUrl": { "$env": "TELEGRAM_BOT_API_BASE_URL", "default": "https://api.telegram.org" }
       }
     },
     { "kind": "provider", "id": "llm", "entry": "packages/provider/llm/src/index.mjs" },

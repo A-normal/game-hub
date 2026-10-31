@@ -11,7 +11,7 @@ import {beginInput,decodeCardText} from "../input.mjs";
 import {clearDraft} from "../wizard.mjs";
 import {clearCatalogDraft} from "../catalog.mjs";
 import {changePreferences} from "../preferences.mjs";
-import {clipText,isSensitiveText,resolvePolicy, servicesOf, sessionDataOf} from "../session.mjs";
+import {clipText,isSensitiveText,resolvePolicy, servicesOf, sessionDataOf,draftKeyOf} from "../session.mjs";
 import {
   modelAdd,
   modelCheck,
@@ -48,7 +48,7 @@ export async function characterImport(ctx) {
   }
   const raw = String(ctx.argumentText || "").trim();
   if (!raw) {
-    clearDraft([event.platform,event.botId,event.unifiedUserId].join(":"));clearCatalogDraft(event);
+    clearDraft(draftKeyOf(event));clearCatalogDraft(event);
     beginInput(ctx,{kind:"character",maxBytes:MAX_CARD_BYTES,extensions:/\.(txt|md|markdown|json)$/i,accept:async({bytes,name,ctx,valid})=>{
       const text=decodeCardText(bytes);
       const parsed=parseCharacterCard(text,{owner:event.unifiedUserId,filename:name});

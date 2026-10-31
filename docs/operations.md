@@ -4,7 +4,7 @@
 
 ## 本地运行
 
-使用支持 `node:sqlite` 的 Node.js 和仓库锁定的包管理器。
+使用 Node.js 22.19+（包含 `node:sqlite`）和仓库锁定的包管理器。
 
 ```powershell
 corepack enable
@@ -12,12 +12,13 @@ corepack pnpm install --frozen-lockfile
 npm test
 ```
 
-测试使用模拟网络。已有网关集成测试会在测试进程内短暂监听环回端口，并在结束时关闭，不需要常驻服务或真实 QQ 账号。
+测试使用模拟网络。已有网关集成测试会在测试进程内短暂监听环回端口，并在结束时关闭，不需要常驻服务或真实 QQ/Telegram 账号。
 
 人工启动应用前，配置访问令牌和数据路径：
 
 ```powershell
-$env:NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN = '<自行生成的访问令牌>'
+$env:TELEGRAM_BOT_API_TOKEN = '<BotFather 提供的机器人API令牌>'
+$env:GAMEHUB_ADMIN_REGISTRATION_TOKEN = '<自行生成的系统管理员注册令牌>'
 $env:GAMEHUB_DB = 'C:\your-data\game-hub\vault.db'
 npm start
 ```
@@ -28,6 +29,7 @@ npm start
 | --- | --- |
 | `GAMEHUB_HOST` / `GAMEHUB_PORT` / `GAMEHUB_PATH` | [NapCat 渠道网关配置](../packages/channel/napcat/README.md#其他渠道环境配置) |
 | `NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN` | [NapCat 渠道连接令牌](../packages/channel/napcat/README.md#napcat-连接-game-hub-的令牌) |
+| `TELEGRAM_BOT_API_TOKEN` / `TELEGRAM_BOT_API_HTTPS_PROXY_URL` / `TELEGRAM_BOT_API_BASE_URL` | [Telegram 渠道配置](../packages/channel/telegram/README.md#渠道环境变量) |
 | `GAMEHUB_ADMIN_REGISTRATION_TOKEN` | [core 系统管理员注册令牌](../packages/core/README.md#系统管理员注册与权限) |
 | `GAMEHUB_DB` | SQLite 文件路径，默认 `data/vault.db` |
 | `GAMEHUB_CONFIG` | 模块装配 JSON 路径，默认 `config/modules.json` |
@@ -49,6 +51,7 @@ npm start
 | 变量 | 所属包与详细说明 |
 | --- | --- |
 | `NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN` | [NapCat 渠道：连接鉴权、双方配置与旧名迁移](../packages/channel/napcat/README.md#napcat-连接-game-hub-的令牌) |
+| `TELEGRAM_BOT_API_TOKEN` | [Telegram 渠道：Bot API 访问凭据与接入步骤](../packages/channel/telegram/README.md#渠道环境变量) |
 | `GAMEHUB_ADMIN_REGISTRATION_TOKEN` / `GAMEHUB_ADMIN_USERS` | [core：系统管理员注册、预置名单与授权管理](../packages/core/README.md#系统管理员注册与权限) |
 | `CHATAI_ADMIN_REGISTRATION_TOKEN` | [chat-ai 插件：独立 AI 管理员注册与旧名迁移](../packages/plugin/chat-ai/README.md#ai-插件管理员注册令牌) |
 
@@ -56,14 +59,14 @@ npm start
 
 ## Compose
 
-现有 Compose 包含 `gamehub`、`napcat`。按环境填写 `.env.example` 对应配置后，先验证和构建：
+默认模块配置启用 Telegram、停用 NapCat。Compose 默认只运行 `gamehub`，旧 `napcat` 服务位于可选的 `napcat` profile；没有删除旧实现或持久数据。按环境填写 `.env.example` 对应配置后，先验证和构建：
 
 ```powershell
 docker compose config --quiet
 docker compose build gamehub
 ```
 
-由维护者人工在前台启动：`docker compose up`。NapCat 的内部反向 WebSocket 目标为 `ws://gamehub:8080/onebot/v11/ws`，双方令牌一致。现有 8080 端口只在专用容器网络内使用。
+由维护者人工在前台启动：`docker compose up`。Telegram 长轮询不要求入站端口或额外容器。需要继续使用 NapCat 时，显式启用其模块和 Compose profile；接入地址与令牌见 [NapCat 包](../packages/channel/napcat/README.md)。
 
 - `CONFIG_ROOT` 为 NapCat 配置位置，`DATA_ROOT` 为 Vault 与 NapCat 状态位置。Docker 在 WSL 内运行时优先使用 WSL Linux 路径。
 - 更新前运行测试，记录旧镜像 ID 并备份数据，再构建新镜像。替换运行服务属于独立运行操作，不自动执行。

@@ -2,6 +2,8 @@
 
 NapCat / OneBot v11 渠道包，负责协议端连接鉴权、平台事件整形、消息与文件交付。模块导入和创建不启动监听；监听、连接与资源清理由 Game-Hub 的 `start/stop` 生命周期管理。
 
+当前仓库默认使用 [Telegram 渠道](../telegram/README.md)，本模块默认停用，Compose 服务位于可选 `napcat` profile。继续使用时需显式启用模块与该 profile；旧数据目录不因默认渠道切换而删除。
+
 ## NapCat 连接 Game-Hub 的令牌
 
 `NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN` 是 **NapCat 协议端连接 Game-Hub 网关**使用的共享令牌，归本渠道包管理。它判断连接方是否可以提交渠道事件，不用于个人系统管理员或 AI 管理员注册。

@@ -1,14 +1,14 @@
 import {hasChatAdmin} from "./admin.mjs";
-import {isSensitiveText} from "./session.mjs";
+import {isSensitiveText,draftKeyOf} from "./session.mjs";
 import {clearDraft} from "./wizard.mjs";
 import {clearCatalogDraft} from "./catalog.mjs";
 const buckets=new WeakMap();
-const key=e=>JSON.stringify([e.platform,e.botId || "",e.isGroup?e.groupId:"private",e.unifiedUserId]);
+const key=e=>JSON.stringify([e.platform,e.botId || "",e.isGroup?e.groupId:"private",e.unifiedUserId,e.threadId ?? ""]);
 const bucket=services=>{if(!buckets.has(services))buckets.set(services,new Map());return buckets.get(services);};
 export const clearInputs=services=>buckets.delete(services);
 export const cancelInput=(services,event)=>services && typeof services==="object" ? bucket(services).delete(key(event)) : false;
 export function beginInput(ctx,{kind,maxBytes,extensions,accept}) {
-  clearDraft([ctx.event.platform,ctx.event.botId,ctx.event.unifiedUserId].join(":"));clearCatalogDraft(ctx.event);
+  clearDraft(draftKeyOf(ctx.event));clearCatalogDraft(ctx.event);
   bucket(ctx.services).set(key(ctx.event),{kind,maxBytes,extensions,accept,expires:ctx.services.now()+600000,busy:false});
 }
 export function isPendingInput(event,services) {return !event.isGroup && bucket(services).has(key(event));}

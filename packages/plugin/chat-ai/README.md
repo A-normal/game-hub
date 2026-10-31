@@ -22,4 +22,4 @@ Game-Hub聊天业务插件，无新增第三方运行依赖。模型协议在独
 
 旧环境变量 `CHATAI_ADMIN_TOKEN` 已更名为 `CHATAI_ADMIN_REGISTRATION_TOKEN`，不再作为有效读取入口。升级时修改实际私有环境文件与 Compose 映射，变量名变更不要求改变令牌值本身。修改容器环境后需重建 Game-Hub，单纯 restart 不会载入新值。
 
-Game-Hub 系统注册令牌由 [core 包](../../core/README.md#系统管理员注册与权限)说明；渠道连接令牌由[对应渠道包](../../channel/napcat/README.md#napcat-连接-game-hub-的令牌)说明。模型 API 密钥只接受 `CHATAI_KEY_*` 前缀，令牌不得作为模型 API 密钥引用，详见 [llm provider](../../provider/llm/README.md)。
+Game-Hub 系统注册令牌由 [core 包](../../core/README.md#系统管理员注册与权限)说明；平台访问凭据见 [Telegram 包](../../channel/telegram/README.md#渠道环境变量)和 [NapCat 包](../../channel/napcat/README.md#napcat-连接-game-hub-的令牌)。模型 API 密钥只接受 `CHATAI_KEY_*` 前缀，令牌不得作为模型 API 密钥引用，详见 [llm provider](../../provider/llm/README.md)。

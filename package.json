@@ -2,7 +2,7 @@
   "name": "game-hub-monorepo",
   "version": "1.0.0",
   "private": true,
-  "description": "Game-Hub: Pluggable Multi-Community Game Bus with Standalone NapCat Gateway",
+  "description": "Game-Hub: Pluggable game, community, messaging and AI modules",
   "type": "module",
   "scripts": {
     "start": "node app.mjs",

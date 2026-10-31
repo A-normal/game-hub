@@ -2,7 +2,7 @@
 
 Game-Hub 是一个通过配置组合 **channel、provider 和 plugin** 的可扩展应用仓库。core 提供统一契约和运行基础；新增游戏、社区或业务能力，以增加独立包并声明配置的方式接入，不要求修改 core 中的游戏列表。
 
-绝区零是一个业务插件，米游社是一个 provider，NapCat 是一个 channel。它们不是仓库能力的上限。聊天 AI 同样作为独立 plugin 接入，不要求游戏身份或米游社账号。
+绝区零是一个业务插件，米游社是一个 provider，Telegram 和 NapCat 是独立 channel。当前默认接入 Telegram，NapCat 保留为可选实现，它们都不是仓库能力的上限。聊天 AI 同样作为独立 plugin 接入，不要求游戏身份或米游社账号。
 
 ## 设计目标
 
@@ -21,6 +21,7 @@ Game-Hub 是一个通过配置组合 **channel、provider 和 plugin** 的可扩
 packages/
   core/                    核心包：契约、注册、路由、配置、身份、存储与生命周期
   channel/
+    telegram/              Telegram Bot API / 长轮询适配包（当前默认）
     napcat/                NapCat / OneBot v11 适配包
     <channel-id>/          其它渠道适配包
   provider/

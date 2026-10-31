@@ -31,7 +31,7 @@ export async function handleTasks(ctx) {
   if (ctx.event.isGroup && (kind==="sign" || !["owner","admin"].includes(ctx.event.sender?.role) && !ctx.dispatcher.isAdmin(ctx.event))) { await ctx.event.reply(kind==="sign"?"自动签到请在私聊中配置。":"群提醒仅限群管理员配置。"); return {status:"DENIED"}; }
   const n=ctx.args[1]===undefined?undefined:Number(ctx.args[1]);
   if (n!==undefined && (!Number.isFinite(n) || n<=0 || n> (kind==="energy"?10000:168))) throw problem("提醒阈值超出支持范围。");
-  const target={platform:ctx.event.platform,botId:ctx.event.botId,userId:ctx.event.sender.id,isGroup:ctx.event.isGroup,groupId:ctx.event.groupId};
+  const target={platform:ctx.event.platform,botId:ctx.event.botId,userId:ctx.event.sender.id,isGroup:ctx.event.isGroup,groupId:ctx.event.groupId,chatId:ctx.event.chatId,threadId:ctx.event.threadId};
   const settings=kind==="energy"?{...(n===undefined?{}:{threshold:n}),intervalMinutes:60}:kind==="challenge"?{hours:n || 24,mode:ctx.args[2]==="危局"?"deadly":"shiyu",intervalMinutes:60}:{};
   const job=tasks.configure({owner,role,kind,target,settings,enabled:["开启","on"].includes(input)});
   await ctx.event.reply("任务已"+(job.enabled?"开启":"关闭")+"；"+command(ctx,"tasks"));

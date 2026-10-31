@@ -186,6 +186,15 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
 
+  packages/channel/telegram:
+    dependencies:
+      '@game-hub/core':
+        specifier: workspace:*
+        version: link:../../core
+      undici:
+        specifier: 8.12.3
+        version: 8.12.3
+
   packages/core: {}
 
   packages/plugin/chat-ai: {}
@@ -464,6 +473,10 @@ packages:
     resolution: {integrity: sha512-Y38VPSHcqkFrCpFnQ9vuSXmquuv5oXOKpGeT6aGrr3o3Gc9AlVa6JBfUSOCnbxGGZF+/0ooI7KrPuUSztUdU5A==}
     engines: {node: '>=8'}
 
+  undici@8.12.3:
+    resolution: {integrity: sha512-+fdndUTwBP86cVjihTp21hZHo7d6oj1c/47XPA3lL8mM0XHs+C4EkcjmgRsFnFk2f/UONGDy9ItBItmXsLOQHw==}
+    engines: {node: '>=22.19.0'}
+
   which-module@2.0.1:
     resolution: {integrity: sha512-iBdZ57RDvnOR9AGBhML2vFZf7h8vmBjhoaZqODJBFWHVtKkDmKuHai3cx5PgVMrX5YDNp27AofYbAwctSS+vhQ==}
 
@@ -677,6 +690,8 @@ snapshots:
   strip-ansi@6.0.1:
     dependencies:
       ansi-regex: 5.0.1
+
+  undici@8.12.3: {}
 
   which-module@2.0.1: {}
 

@@ -1,0 +1,12 @@
+{
+  "name": "@game-hub/channel-telegram",
+  "version": "1.0.0",
+  "description": "Telegram Bot API channel with lifecycle-owned polling and bounded media delivery",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "engines": { "node": ">=22.19.0" },
+  "dependencies": {
+    "@game-hub/core": "workspace:*",
+    "undici": "8.12.3"
+  }
+}

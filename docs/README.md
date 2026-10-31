@@ -6,6 +6,7 @@
 - [运行与部署](operations.md)
 - [core 系统管理员注册与权限](../packages/core/README.md)
 - [NapCat 渠道配置与连接令牌](../packages/channel/napcat/README.md)
+- [Telegram 渠道配置与 Bot API Token](../packages/channel/telegram/README.md)
 - [chat-ai 插件配置与管理员注册令牌](../packages/plugin/chat-ai/README.md)
 - [插件开发约定](plugin-development.md)
 - [chatAi 使用说明](chat-ai.md)

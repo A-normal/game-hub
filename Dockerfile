@@ -40,7 +40,6 @@ ENV GAMEHUB_HOST=0.0.0.0
 ENV GAMEHUB_PORT=8080
 ENV GAMEHUB_PATH=/onebot/v11/ws
 ENV GAMEHUB_DB=/app/data/vault.db
-ENV GAMEHUB_TOKEN=gamehub_secret_token_2026
 
 # 从构建阶段复制必要文件与已解析的 node_modules
 COPY --from=builder /app /app

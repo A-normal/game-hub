@@ -100,7 +100,7 @@ function replyAction(ctx) {
     if (policy === "off") return false;
     const text = clipText(event.cleanText, config.retention.maxCharsPerMessage);
     if (!text || isSensitiveText(event.cleanText) || event.sender?.id === event.botId || services.intake?.get(event)?.accepted === false) return false;
-    if(policy === "mention" && event.mentionedBot !== true) {
+    if(policy === "mention" && event.mentionedBot !== true && event.replyToBot !== true) {
       if(!interjectionSettings(store,data.sessionId).enabled || !isReplyToBot(store,data.sessionId,event))return tryInterjection(ctx,session);
     }
     const usage = store.getUsage(data.sessionId, dayKey(clockOf(services)));

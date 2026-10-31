@@ -37,4 +37,4 @@ Game-Hub 通用核心包，负责模块装配、标准事件与命令路由、�
 
 根 Compose 已映射系统注册令牌和可选预置名单。若实际使用仓库外的 Compose，需在对应部署文件中添加同名环境映射；修改 `.env` 后重建 Game-Hub 才会载入新值，单纯 restart 不会更新环境。
 
-部署前备份 Vault。本权限整理不引入数据库结构迁移。通用操作见[部署说明](../../docs/operations.md)；NapCat 连接令牌见[渠道包说明](../channel/napcat/README.md#napcat-连接-game-hub-的令牌)，独立 AI 管理权限见[插件包说明](../plugin/chat-ai/README.md#ai-插件管理员注册令牌)。
+部署前备份 Vault。本权限整理不引入数据库结构迁移。通用操作见[部署说明](../../docs/operations.md)；Telegram 机器人凭据见[Telegram 包](../channel/telegram/README.md#渠道环境变量)，NapCat 连接令牌见[NapCat 包](../channel/napcat/README.md#napcat-连接-game-hub-的令牌)，独立 AI 管理权限见[插件包说明](../plugin/chat-ai/README.md#ai-插件管理员注册令牌)。

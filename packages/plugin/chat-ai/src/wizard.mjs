@@ -1,13 +1,13 @@
 /** Model-ID editing drafts. Service address/key editing belongs to the connection catalog. */
 import {clearCatalogDraft} from "./catalog.mjs";
-import {isSensitiveText} from "./session.mjs";
+import {isSensitiveText,draftKeyOf} from "./session.mjs";
 import {hasChatAdmin} from "./admin.mjs";
 import {checkSingleProfile} from "./health.mjs";
 export {modelAdd, modelList} from "./catalog.mjs";
 
 const drafts = new Map();
 const WIZARD_TTL_MS = 10 * 60 * 1000;
-const wizardUser = event => [event.platform,event.botId,event.unifiedUserId].join(":");
+const wizardUser = draftKeyOf;
 let currentClock = Date.now;
 export function setWizardClock(clock) { currentClock = typeof clock === "function" ? clock : Date.now; }
 export function clearAllDrafts() { drafts.clear(); currentClock = Date.now; }

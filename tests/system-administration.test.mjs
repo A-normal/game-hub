@@ -253,7 +253,7 @@ test("NapCat module consumes the explicit connection variable without starting a
   const v = new IdentityVault(); t.after(() => v.close());
   const config = JSON.parse(fs.readFileSync(path.join(root, "config/modules.json"), "utf8"));
   const channel = config.modules.find(item => item.kind === "channel" && item.id === "napcat");
-  const onlyChannel = { version: 1, modules: [channel] };
+  const onlyChannel = { version: 1, modules: [{ ...channel, enabled: true }] };
   const r = await assembleModules({ root, vault: v, config: onlyChannel, env: { NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN: "explicit-connection-value" } });
   t.after(() => r.stop());
   assert.equal(r.channels[0].accessToken, "explicit-connection-value");

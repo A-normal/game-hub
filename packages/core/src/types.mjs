@@ -18,6 +18,9 @@
  * @property {boolean} isGroup
  * @property {string} [groupId]
  * @property {string} [botId]
+ * @property {string} [chatId] Native chat destination, distinct from user identity.
+ * @property {string} [threadId] Optional conversation topic; channels preserve it when replying.
+ * @property {boolean} [replyToBot] True when the platform identifies a reply to this bot.
  * @property {boolean} [commandHint]
  * @property {number} timestamp
  * @property {{id:string,name?:string,role?:string}} sender

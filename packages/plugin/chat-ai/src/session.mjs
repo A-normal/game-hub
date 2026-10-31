@@ -5,15 +5,18 @@
  */
 
 /** 入站敏感模式：凭据、授权链接与 CQ 码一律不进入上下文。 */
-const SENSITIVE_PATTERN = /\bsk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|ltoken(_v2)?=|stoken(_v2)?=|cookie_token(_v2)?=|authkey(_ver)?=|login_ticket=|Cookie:|\[CQ:/i;
+const SENSITIVE_PATTERN = /\bsk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|ltoken(_v2)?=|stoken(_v2)?=|cookie_token(_v2)?=|authkey(_ver)?=|login_ticket=|Cookie:|\[CQ:|\b[0-9]{5,}:[A-Za-z0-9_-]{20,}\b|(?:GAMEHUB_ADMIN_REGISTRATION_TOKEN|CHATAI_ADMIN_REGISTRATION_TOKEN|TELEGRAM_BOT_API_TOKEN|NAPCAT_TO_GAMEHUB_CONNECTION_TOKEN)\s*[:=]/i;
 /** 控制字符（保留 \t \n \r 之外的 C0/C1 与 DEL）。 */
 const CONTROL_PATTERN = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 /** CQ 码段：含未闭合的 `[CQ:`（模型输出与用户输入都可能带）。 */
 const CQ_PATTERN = /\[CQ:[^\]]*\]?/g;
 
+const threadSuffix = event => event.threadId === undefined || event.threadId === null || String(event.threadId) === "" ? "" : ":thread:" + encodeURIComponent(String(event.threadId));
+export const draftKeyOf = event => [event.platform,event.botId,event.unifiedUserId].join(":") + threadSuffix(event);
+
 /**
- * 会话键：`platform:botId:scope:scopeId`；群聊缺 groupId、私聊缺 unifiedUserId 时返回 null。
- * @param {Object} event 入站事件信封（只读取 platform/botId/isGroup/groupId/unifiedUserId）
+ * 会话键：`platform:botId:scope:scopeId[:thread:threadId]`；缺少必要身份时返回 null。
+ * @param {Object} event 入站事件信封（读取平台、身份及可选 threadId）
  * @returns {string|null}
  */
 export function sessionKeyOf(event) {
@@ -23,10 +26,10 @@ export function sessionKeyOf(event) {
   const botId = event.botId === undefined || event.botId === null || String(event.botId) === "" ? "-" : String(event.botId);
   if (event.isGroup) {
     const groupId = event.groupId === undefined || event.groupId === null ? "" : String(event.groupId).trim();
-    return groupId ? platform + ":" + botId + ":group:" + groupId : null;
+    return groupId ? platform + ":" + botId + ":group:" + groupId + threadSuffix(event) : null;
   }
   const userId = String(event.unifiedUserId ?? "").trim();
-  return userId ? platform + ":" + botId + ":private:" + userId : null;
+  return userId ? platform + ":" + botId + ":private:" + userId + threadSuffix(event) : null;
 }
 
 /**
@@ -43,7 +46,7 @@ export function sessionDataOf(event) {
     platform: String(event.platform ?? ""),
     botId: event.botId === undefined || event.botId === null || String(event.botId) === "" ? null : String(event.botId),
     scope: isGroup ? "group" : "private",
-    scopeId: isGroup ? String(event.groupId) : String(event.unifiedUserId)
+    scopeId: (isGroup ? String(event.groupId) : String(event.unifiedUserId)) + threadSuffix(event)
   };
 }
 
