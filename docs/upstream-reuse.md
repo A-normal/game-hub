@@ -21,6 +21,8 @@ UIGF 的完整生成客户端带有 Azure 运行依赖，包含大量本仓库�
 
 Android 模板的容量、传感器等默认值不是手机实测信息，不能当作真机信任凭证；适配和许可依据见 [设备 payload 说明](../packages/provider/mihoyo/vendor/android-device/README.md)。`forchannot/get_device_info` 仅作为用户取得七字段 JSON 的工具来源，没有把 APK 或其实现打包进仓库。
 
+2026-11-01 对照 ZZZ-Plugin `0b248bf1d65276fe9b38e45be7c74a2f161d69d9` 的设备行为，独立补齐账号侧设备登录/保存、请求头一致性、七天请求时更新和有界验证处理接口。保留原有 MIT payload，仅在自有 adapter 覆盖可由用户输入推导的字段；没有复制 AGPL 实现、固定伪造身份值或引入云崽依赖。协议行为参考：[设备流程](https://github.com/ZZZure/ZZZ-Plugin/blob/0b248bf1d65276fe9b38e45be7c74a2f161d69d9/dist/lib/plugin.js)、[接口定义](https://github.com/ZZZure/ZZZ-Plugin/blob/0b248bf1d65276fe9b38e45be7c74a2f161d69d9/dist/lib/mysapi/tool.js)、[查询与验证入口](https://github.com/ZZZure/ZZZ-Plugin/blob/0b248bf1d65276fe9b38e45be7c74a2f161d69d9/dist/lib/mysapi.js)。上游的回退指纹和忽略登记失败行为没有照搬；本仓库分别记录每个步骤的真实结果。
+
 DS 实现本身不包含可用盐值；仍需确认具体接口族的盐值、签名代际、请求头、设备和凭据类型。协议定义不是官方服务可用性的保证。
 
 实际计算代码完整性用 `node tools/verify-vendor.mjs` 核对；构建入口为 `tools/vendor-optimizer.mjs`。公式测试覆盖当前锁定目录的角色技能，但模拟输入和有限独立基准不能等同于全部角色真机数值验收。

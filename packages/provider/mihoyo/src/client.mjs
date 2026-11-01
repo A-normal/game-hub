@@ -1,10 +1,9 @@
 import crypto from "node:crypto";
 import { signDs, SALTS } from "./signer.mjs";
 import { androidHeaders } from "./android-profile.mjs";
+import { MihoyoError } from "./errors.mjs";
+export { MihoyoError } from "./errors.mjs";
 
-export class MihoyoError extends Error {
-  constructor(code, publicMessage, retcode) { super(code); this.name = "MihoyoError"; this.code = code; this.publicMessage = publicMessage; this.retcode = retcode; }
-}
 export const isOverseas = region => region !== "prod_gf_cn";
 export const cookieString = cookies => typeof cookies === "string" ? cookies.trim() : cookies?.ck || cookies?.cookie || Object.entries(cookies || {}).filter(([, v]) => v !== undefined && v !== null && v !== "").map(([k, v]) => k + "=" + v).join("; ");
 const allowedHosts = new Set(["api-takumi.mihoyo.com", "api-takumi-record.mihoyo.com", "api-takumi-static.mihoyo.com", "bbs-api.miyoushe.com", "sg-public-api.hoyolab.com", "sg-act-public-api.hoyolab.com", "public-operation-nap.mihoyo.com", "public-operation-nap-sg.hoyoverse.com", "public-operation-common.mihoyo.com", "public-operation-common-sg.hoyoverse.com"]);
@@ -18,11 +17,18 @@ export const RECORDS = Object.freeze({
 });
 export class MihoyoTakumiClient {
   constructor(cookies = {}, device = {}, options = {}) {
-    this.cookieString = cookieString(cookies);
-    this.device = { deviceId: device.device_id || crypto.randomUUID(), deviceFp: device.device_fp, deviceName: device.device_name, deviceModel: device.device_model, android:device.device_android };
+    this.prepareDevice = options.prepareDevice;
+    this.verificationHandler = options.verificationHandler;
+    this.defaultSignal = options.signal;
+    this._setCredential(cookies,device);
     this.fetch = options.fetchImpl || ((...args) => fetch(...args));
     this.timeoutMs = options.timeoutMs ?? 15000;
     this.signer = options.sign || signDs;
+  }
+  _setCredential(cookies,device) {
+    this.cookieString = cookieString(cookies);
+    this.device = { deviceId: device.device_id || crypto.randomUUID(), deviceFp: device.device_fp, deviceName: device.device_name, deviceModel: device.device_model, android:device.device_android };
+    this.deviceRegistration = device.device_registration;
   }
   _resolveBaseUrl(endpoint, server = "prod_gf_cn", scope = "record") {
     if (/^https?:\/\//.test(endpoint)) return endpoint;
@@ -30,9 +36,16 @@ export class MihoyoTakumiClient {
     return "https://" + host + "/" + endpoint.replace(/^\//, "");
   }
   async request(endpoint, options = {}) {
+    if(this.defaultSignal)options={...options,signal:options.signal?AbortSignal.any([this.defaultSignal,options.signal]):this.defaultSignal};
     const server = options.server || "prod_gf_cn";
     const url = new URL(this._resolveBaseUrl(endpoint, server, options.scope));
     if (url.protocol !== "https:" || !allowedHosts.has(url.hostname) || url.username || url.password || url.port && url.port !== "443") throw new MihoyoError("UNSAFE_URL", "接口地址不在允许范围。");
+    options.signal?.throwIfAborted();
+    if(options.public!==true && this.prepareDevice) {
+      const current=await this.prepareDevice({server,signal:options.signal});
+      this._setCredential(current.cookies,current.device);
+      options.signal?.throwIfAborted();
+    }
     for (const [key, value] of Object.entries(options.query || options.params || {})) {
       if (value === undefined || value === null) continue;
       for (const item of Array.isArray(value) ? value : [value]) url.searchParams.append(Array.isArray(value) ? key + "[]" : key, String(item));
@@ -68,11 +81,27 @@ export class MihoyoTakumiClient {
     } finally { clearTimeout(timer); }
   }
   async data(endpoint, options = {}) {
-    const response = await this.request(endpoint, options);
+    let response = await this.request(endpoint, options);
+    const verificationCodes=[1034,10035,10041];
+    if(options.public!==true && verificationCodes.includes(response.retcode) && typeof this.verificationHandler==="function" && ["GET","HEAD"].includes(String(options.method || "GET").toUpperCase())) {
+      const timeout=AbortSignal.timeout(this.timeoutMs);
+      const signals=[timeout,options.signal,this.defaultSignal].filter(Boolean);
+      const signal=signals.length>1?AbortSignal.any(signals):timeout;
+      let abort,verified=false;
+      try {
+        signal.throwIfAborted();
+        const cancelled=new Promise((_,reject)=>{abort=()=>reject(signal.reason);signal.addEventListener("abort",abort,{once:true});});
+        verified=await Promise.race([cancelled,Promise.resolve().then(()=>this.verificationHandler({retcode:response.retcode,response,endpoint,server:options.server || "prod_gf_cn",signal}))]);
+      } catch { /* Keep the original service rejection; never echo handler errors. */ }
+      finally {if(abort)signal.removeEventListener("abort",abort);}
+      if(verified===true)response=await this.request(endpoint,options);
+    }
     if (response.retcode !== 0) {
       const code = response.retcode;
-      const message = [-100, -101, 10001, 10002, -10001].includes(code) ? "登录凭据已失效，请重新登录。" : [10102, 10103].includes(code) ? "游戏数据未公开或无查询权限。" : code === 1034 ? "社区要求安全验证，请在官方客户端完成验证后重试。" : code === 10041 ? "米游社拒绝当前请求的设备或安全校验（10041）。官方 App 正常时，也可能是机器人设备与凭据环境不匹配。" : "社区接口拒绝请求（代码 " + code + "）。";
-      throw new MihoyoError("API", message, code);
+      const message = [-100, -101, 10001, 10002, -10001].includes(code) ? "登录凭据已失效，请重新登录。" : [10102, 10103].includes(code) ? "游戏数据未公开或无查询权限。" : [1034,10035].includes(code) ? "社区要求安全验证（"+code+"），请在官方客户端完成验证后重试。" : code === 10041 ? "米游社拒绝当前请求的设备或安全校验（10041）。官方 App 正常时，也可能是机器人设备与凭据环境不匹配。" : "社区接口拒绝请求（代码 " + code + "）。";
+      const error=new MihoyoError("API", message, code);
+      if(verificationCodes.includes(code))error.verification={retcode:code,challengePresent:!!(response.data?.challenge || response.data?.gt || response.data?.mmt_data),deviceRegistration:this.deviceRegistration};
+      throw error;
     }
     if (!response.data || typeof response.data !== "object") throw new MihoyoError("SCHEMA", "社区没有返回有效数据。");
     return response.data;

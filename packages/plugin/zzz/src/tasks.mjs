@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { createAccountClient } from "./account-client.mjs";
 export const chinaDay = time => new Date(time+8*3600000).toISOString().slice(0,10);
 export function recordDeadline(data) {
   const value=data?.end_time ?? data?.hadal_info_v2?.end_time ?? data?.hadal_mem_detail_v2?.end_time;
@@ -38,7 +39,7 @@ export class ZzzTasks {
       // Resolve credentials through this owner's binding, never through a public UID.
       const account=this.vault.getUserCredential(job.owner,bound.provider_id,bound.account_key);
       if (!account) continue;
-      const client=this.dispatcher.providers.get("mihoyo").createClient(account.cookies,account.device);
+      const client=createAccountClient({provider:this.dispatcher.providers.get("mihoyo"),vault:this.vault,owner:job.owner,providerId:bound.provider_id,accountKey:bound.account_key,signal:this.controller.signal});
       const period=job.kind==="sign" ? chinaDay(now) : chinaDay(now)+":"+Math.floor(now/(Number(job.settings.intervalMinutes || 60)*60000));
       const state=this.store.runState(job.id,period);
       if (["delivered","sending"].includes(state)) { this._advance(job,now); continue; }

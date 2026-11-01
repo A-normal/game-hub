@@ -24,9 +24,9 @@ function setup(t,fetchImpl=async()=>response()) {
 test("Android issuance maps imported hardware fields and requires a genuine issued fingerprint",async()=>{
   let sent;
   const issued=await issueDeviceFingerprint({deviceId:"stable",mobile:{...mobile,cookie:"ignored-secret"},fetchImpl:async(url,init)=>{sent={url,init,body:JSON.parse(init.body)};return response();}});
-  assert.equal(sent.body.platform,"2");assert.equal(sent.body.device_fp,"0000000000000");assert.equal(sent.init.headers.Cookie,undefined);assert.equal(sent.init.headers.DS,undefined);
+  assert.equal(sent.body.platform,"2");assert.match(sent.body.device_fp,/^[0-9a-f]{13}$/);assert.equal(sent.body.bbs_device_id,"stable");assert.match(sent.body.seed_id,/^[0-9a-f-]{36}$/);assert.equal(sent.init.headers.Cookie,undefined);assert.equal(sent.init.headers.DS,undefined);
   const ext=JSON.parse(sent.body.ext_fields);
-  for(const [field,value] of Object.entries({deviceName:mobile.deviceName,productName:mobile.deviceProduct,model:mobile.deviceModel,brand:"Test",manufacturer:"Test",osVersion:"15",board:mobile.deviceBoard,oaid:mobile.oaid,deviceInfo:mobile.deviceFingerprint,buildType:"user",buildTags:"release-keys"}))assert.equal(ext[field],value,field);
+  for(const [field,value] of Object.entries({deviceName:mobile.deviceModel,productName:mobile.deviceProduct,model:mobile.deviceModel,brand:"Test",manufacturer:"Test",osVersion:"15",board:mobile.deviceBoard,oaid:mobile.oaid,deviceInfo:mobile.deviceFingerprint,buildType:"user",buildTags:"release-keys",display:"BUILD",sdkVersion:"35"}))assert.equal(ext[field],value,field);
   assert.ok(!sent.init.body.includes("ignored-secret"));assert.deepEqual(issued.device_android,mobile);assert.equal(issued.device_fp_source,"official-android");
   await assert.rejects(issueDeviceFingerprint({deviceId:"stable",mobile,region:"prod_gf_us"}),{code:"DEVICE_PROFILE_REGION"});
   await assert.rejects(issueDeviceFingerprint({deviceId:"stable",mobile,fetchImpl:async()=>new Response(JSON.stringify({retcode:0,data:{code:403,device_fp:"123456789abcd"}}))}),{code:"DEVICE_FP_REJECTED"});
@@ -34,14 +34,14 @@ test("Android issuance maps imported hardware fields and requires a genuine issu
 test("Android validation rejects malformed, unbounded and injected fields without echoing values",()=>{
   for(const bad of [null,[],{}, {...mobile,deviceModel:"SECRET\r\nInjected: x"},{...mobile,oaid:"x".repeat(129)},{...mobile,androidVersion:"999"}])assert.throws(()=>normalizeAndroidProfile(bad),error=>!error.message.includes("SECRET"));
   assert.deepEqual(normalizeAndroidProfile({...mobile,unknown:"ignored"}),mobile);
-  assert.equal(androidExtFields(mobile).packageVersion,"2.104.0");
+  assert.equal(androidExtFields(mobile).packageVersion,"2.73.1");
 });
 test("private JSON import, refresh and authenticated requests retain one Android profile; public requests omit it",async t=>{
   const requests=[];const h=setup(t,async(url,init)=>{requests.push({url,init});return response();});
   assert.equal((await h.run("&绑定设备 "+JSON.stringify({...mobile,ignored:"secret"},null,2))).status,"HANDLED");
   let current=h.vault.getActiveRole(owner,"zzz");assert.deepEqual(current.device.device_android,mobile);assert.equal(current.device.device_id,original.device_id);
   assert.ok(!h.replies.at(-1).includes(mobile.oaid));assert.match(h.replies.at(-1),/&便签/);
-  await h.run("&默认设备 刷新指纹");assert.equal(JSON.parse(requests.at(-1).init.body).platform,"2");
+  await h.run("&默认设备 刷新指纹");assert.equal(JSON.parse(requests.filter(row=>row.url.includes("/device-fp/")).at(-1).init.body).platform,"2");
   current=h.vault.getActiveRole(owner,"zzz");const provider=new MihoyoCommunityProvider({fetchImpl:async(url,init)=>{requests.push({url,init});return new Response(JSON.stringify({retcode:0,data:{}}));}});
   const client=provider.createClient(current.cookies,current.device);await client.getDailyNote(role.uid,role.region);
   const headers=requests.at(-1).init.headers;assert.equal(headers["x-rpc-device_id"],original.device_id);assert.equal(headers["x-rpc-device_fp"],"123456789abcd");assert.equal(headers["x-rpc-device_model"],mobile.deviceModel);assert.equal(headers["x-rpc-sys_version"],"15");assert.equal(headers["x-rpc-client_type"],"2");assert.match(headers["User-Agent"],/Android 15/);
@@ -72,10 +72,11 @@ test("issuance preserves concurrently refreshed cookies and refuses unbind or de
 });
 test("device metadata is encrypted, survives reopening, reads legacy plaintext and fails closed on corruption",()=>{
   const path=fileURLToPath(new URL("./_tmp_android_"+randomUUID()+".db",import.meta.url));let vault;
+  const metadata={...original,device_android:mobile,device_registration_id:"private-fixture-registration",device_registration:{version:1,attempted_at:42,login:{status:"ok",retcode:0},save:{status:"rejected",retcode:10041}}};
   try {
-    vault=new IdentityVault(path);vault.saveAccountBinding({unifiedUserId:owner,platform:"mock",originalId:"1",providerId:"mihoyo",accountKey:"100",gameId:"zzz",cookies:{ck:"test"},device:{...original,device_android:mobile},roles:[role]});
+    vault=new IdentityVault(path);vault.saveAccountBinding({unifiedUserId:owner,platform:"mock",originalId:"1",providerId:"mihoyo",accountKey:"100",gameId:"zzz",cookies:{ck:"test"},device:metadata,roles:[role]});
     const raw=vault.db.prepare("SELECT device_meta FROM community_credentials").get().device_meta;assert.match(raw,/^enc:v1:/);assert.ok(!raw.includes(mobile.oaid));vault.close();vault=new IdentityVault(path);
-    assert.deepEqual(vault.getUserCredential(owner,"mihoyo","100").device.device_android,mobile);
+    assert.deepEqual(vault.getUserCredential(owner,"mihoyo","100").device,metadata);assert.ok(!raw.includes(metadata.device_registration_id));
     vault.db.prepare("UPDATE community_credentials SET device_meta=?").run(JSON.stringify(original));assert.deepEqual(vault.getActiveRole(owner,"zzz").device,original);
     vault.db.prepare("UPDATE community_credentials SET device_meta=?").run("enc:v1:broken");assert.throws(()=>vault.getActiveRole(owner,"zzz"),{code:"VAULT_DECRYPT"});assert.throws(()=>vault.getUserCredential(owner,"mihoyo","100"),{code:"VAULT_DECRYPT"});
   } finally {vault?.close();unlinkSync(path);}

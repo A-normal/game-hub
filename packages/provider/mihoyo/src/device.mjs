@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import os from "node:os";
-import { MihoyoError } from "./client.mjs";
+import { MihoyoError } from "./errors.mjs";
 import { normalizeAndroidProfile, androidExtFields, androidHeaders } from "./android-profile.mjs";
 
 /** Official, unauthenticated web-device issuance. A random seed is never a fingerprint. */
-export async function issueDeviceFingerprint({deviceId,region="prod_gf_cn",mobile,fetchImpl=fetch,signal,timeoutMs=15000,now=Date.now}={}) {
+export async function issueDeviceFingerprint({deviceId,deviceFp,cookies,region="prod_gf_cn",mobile,fetchImpl=fetch,signal,timeoutMs=15000,now=Date.now}={}) {
   if(!/^[a-zA-Z0-9._-]{1,128}$/.test(deviceId || "")) throw new TypeError("Invalid device ID");
   const body={
     app_name:region==="prod_gf_cn"?"bbs_cn":"bbs_oversea",device_id:deviceId,platform:"4",
@@ -16,14 +16,17 @@ export async function issueDeviceFingerprint({deviceId,region="prod_gf_cn",mobil
   const android=mobile?normalizeAndroidProfile(mobile):null;
   if(android) {
     if(region!=="prod_gf_cn")throw new MihoyoError("DEVICE_PROFILE_REGION","Android 设备信息导入目前仅支持国服。");
-    body.platform="2";body.device_fp="0000000000000";body.ext_fields=JSON.stringify(androidExtFields(android));
+    body.seed_id=crypto.randomUUID();body.bbs_device_id=deviceId;
+    body.platform="2";body.device_fp=deviceFp || crypto.randomBytes(7).toString("hex").slice(0,13);
+    body.ext_fields=JSON.stringify(androidExtFields(android,{deviceId,seedId:body.seed_id}));
   }
   const timeout=AbortSignal.timeout(timeoutMs);
   try {
     signal?.throwIfAborted();
     const host=region==="prod_gf_cn"?"public-data-api.mihoyo.com":"sg-public-data-api.hoyoverse.com";
+    const cookie=typeof cookies==="string"?cookies:cookies?.ck || cookies?.cookie || Object.entries(cookies || {}).filter(([,v])=>v!==undefined && v!==null && v!=="").map(([k,v])=>k+"="+v).join("; ");
     const response=await fetchImpl("https://"+host+"/device-fp/api/getFp",{
-      method:"POST",headers:{"Content-Type":"application/json","User-Agent":"Game-Hub/1.0"},
+      method:"POST",headers:{"Content-Type":"application/json","User-Agent":"Game-Hub/1.0",...(android?{...androidHeaders(android),"x-rpc-device_id":deviceId,...(deviceFp?{"x-rpc-device_fp":deviceFp}:{}),...(cookie?{Cookie:cookie}:{}),Origin:"https://act.mihoyo.com",Referer:"https://act.mihoyo.com/"}:{})},
       body:JSON.stringify(body),redirect:"error",signal:signal?AbortSignal.any([signal,timeout]):timeout
     });
     if(!response.ok)throw new MihoyoError("DEVICE_FP_HTTP","官方设备指纹服务暂不可用。");

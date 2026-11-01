@@ -1,7 +1,7 @@
 import { ZZZ_COMMAND_HELP } from "./command-help.mjs";
 import { handleBind } from "./handlers/bind.mjs";
 import { handleLoginQr } from "./handlers/login-qr.mjs";
-import { handleSelectRole,handleListRoles,handleAccount } from "./handlers/role.mjs";
+import { handleSelectRole,handleListRoles,handleAccount,deviceRegistrationLines } from "./handlers/role.mjs";
 import { handleNote } from "./handlers/note.mjs";
 import { handlePanel } from "./handlers/panel.mjs";
 import { handleRecord,handleMonthly,handlePools } from "./handlers/records.mjs";
@@ -10,9 +10,15 @@ import { handleGacha } from "./handlers/gacha.mjs";
 import { handleHelp } from "./handlers/help.mjs";
 import { handleAlias,handleTasks,handleRanking,handleCalculationSettings,handleMaintenance } from "./handlers/settings.mjs";
 import { handleContent } from "./handlers/content.mjs";
+import { installAccountClient } from "./account-client.mjs";
 const route=(id,tokens,description,action,extra={})=>({id,tokens,argumentSeparator:true,description:ZZZ_COMMAND_HELP[id]?.description || description,help:ZZZ_COMMAND_HELP[id],action:async ctx=>{
-  try {return await action(ctx);} catch(error) {
-    if(error?.retcode===10041) error.publicMessage = (error.publicMessage || "米游社设备或安全校验未通过（10041）。") + "\n扫码登录与常用设备绑定均保留。Android 用户可在私聊使用「"+ctx.commands.format({routeId:"device",args:["<设备JSON>"]})+"」绑定常用手机信息；已有设备信息会在正常重新扫码时保留，请勿反复重建设备。这些操作不能保证解除所有官方校验。";
+  try {installAccountClient(ctx);return await action(ctx);} catch(error) {
+    if(error?.retcode===10041) {
+      const registration=error.verification?.deviceRegistration;
+      error.publicMessage = (error.publicMessage || "米游社设备或安全校验未通过（10041）。") + (registration
+        ? "\n"+deviceRegistrationLines({device_registration:registration}).join("\n")+"\n设备登记结果不代表业务校验通过；请私聊使用「"+ctx.commands.format({routeId:"device"})+"」查看设备状态，请勿反复重建设备。"
+        : "\n扫码登录与常用设备绑定均保留。Android 用户可在私聊使用「"+ctx.commands.format({routeId:"device",args:["<设备JSON>"]})+"」绑定常用手机信息；已有设备信息会在正常重新扫码时保留，请勿反复重建设备。这些操作不能保证解除所有官方校验。");
+    }
     throw error;
   }
 },...extra});

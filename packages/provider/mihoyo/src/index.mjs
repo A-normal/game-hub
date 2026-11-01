@@ -6,13 +6,16 @@
 import { MihoyoTakumiClient } from "./client.mjs";
 import { getDs1, getDs2, SALTS } from "./signer.mjs";
 import { issueDeviceFingerprint } from "./device.mjs";
+import { AndroidDeviceLifecycle, prepareAndroidDevice } from "./device-session.mjs";
 export { issueDeviceFingerprint } from "./device.mjs";
+export { prepareAndroidDevice, registerAndroidDevice, ANDROID_FINGERPRINT_TTL_MS } from "./device-session.mjs";
 export { normalizeAndroidProfile, androidHeaders } from "./android-profile.mjs";
 export const configSchema={type:"object",additionalProperties:false,properties:{timeoutMs:{type:"number",minimum:1000,maximum:60000}}};
 
 export class MihoyoCommunityProvider {
   constructor(options={}) {
     this.options=options;
+    this.deviceLifecycle=new AndroidDeviceLifecycle(options);
     this.id = "mihoyo";
     this.kind = "provider";
     this.contractVersion = 1;
@@ -26,10 +29,11 @@ export class MihoyoCommunityProvider {
    * @param {Object} [device]
    * @returns {MihoyoTakumiClient}
    */
-  createClient(cookies, device) {
-    return new MihoyoTakumiClient(cookies, device,this.options);
+  createClient(cookies, device, {deviceStore,signal}={}) {
+    return new MihoyoTakumiClient(cookies, device,{...this.options,...(signal?{signal}:{}),...(deviceStore?{prepareDevice:options=>this.deviceLifecycle.current(deviceStore,options)}:{})});
   }
   issueDeviceFingerprint(deviceId,options={}) {return issueDeviceFingerprint({deviceId,fetchImpl:this.options.fetchImpl,timeoutMs:this.options.timeoutMs,...options});}
+  prepareAndroidDevice(options) {return prepareAndroidDevice({fetchImpl:this.options.fetchImpl,timeoutMs:this.options.timeoutMs,now:this.options.now,...options});}
 
   /**
    * 通用网关调用入口 (兼容 SPI ICommunityProvider 契约)

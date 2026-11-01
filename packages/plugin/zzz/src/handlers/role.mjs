@@ -28,6 +28,11 @@ export async function handleListRoles(ctx) {
 }
 const maskDevice = value => !value ? "未设置" : String(value).length <= 6 ? "*".repeat(String(value).length) : String(value).slice(0,4) + "***";
 const currentDevice = role => ({ ...(role.device || {}) });
+export const deviceRegistrationLines = device => {
+  const state=device.device_registration;
+  const status=item=>!item?"未执行":item.status==="ok"?"成功":item.status==="rejected"?"被拒绝（"+item.retcode+"）":"失败（"+(item.code || "FAILED")+"）";
+  return ["账号侧设备登录："+status(state?.login),"账号侧设备保存："+status(state?.save)];
+};
 export async function handleAccount(ctx) {
   if (ctx.routeId === "unbind") {
     if (ctx.event.isGroup) { await ctx.event.reply("请私聊解绑账号。"); return {status:"DENIED"}; }
@@ -54,6 +59,14 @@ export async function handleAccount(ctx) {
     await ctx.event.reply("请在私聊配置设备。"); return {status:"DENIED"};
   }
   const existing = currentDevice(role);
+  const currentCookies = () => {
+    const latest=ctx.vault.getUserCredential(ctx.event.unifiedUserId,role.providerId,role.accountKey);
+    if(!latest || JSON.stringify(latest.device)!==JSON.stringify(existing))throw Object.assign(problem("账号绑定或设备配置已变化，请重新执行设备配置。"),{code:"DEVICE_CHANGED"});
+    return latest.cookies;
+  };
+  const issue = (deviceId,mobile) => mobile && ctx.provider.prepareAndroidDevice
+    ? ctx.provider.prepareAndroidDevice({deviceId,deviceFp:existing.device_fp,mobile,region:role.region,cookies:currentCookies(),currentCookies})
+    : ctx.provider.issueDeviceFingerprint(deviceId,{region:role.region,mobile});
   // Network issuance may overlap a login or an unbind. Preserve newer cookies and
   // refuse to overwrite a concurrently changed device or recreate a removed binding.
   const saveIssued = issued => {
@@ -71,7 +84,7 @@ export async function handleAccount(ctx) {
     // 只补缺失字段：已有真机指纹时绝不用随机值覆盖。
     const deviceId=existing.device_id || crypto.randomUUID();
     const replaceFp=ctx.routeId==="deviceFingerprint" || ctx.args[0]==="刷新指纹" || !existing.device_fp;
-    const issued=replaceFp ? await ctx.provider.issueDeviceFingerprint(deviceId,{region:role.region,mobile:existing.device_android}) : {};
+    const issued=replaceFp ? await issue(deviceId,existing.device_android) : {};
     const dev = {
       ...existing,...issued,
       device_id: deviceId,
@@ -83,6 +96,7 @@ export async function handleAccount(ctx) {
       title("绝区零设备配置"),
       divider(),
       ...kv([["设备ID", dev.device_id], ["设备指纹", dev.device_fp], ["来源", replaceFp ? "官方设备接口签发" : "沿用已绑定设备"]], { align: false }),
+      ...(dev.device_android?deviceRegistrationLines(dev):[]),
       divider(),
       "此指纹由官方服务签发，但不等于手机常用设备的授权；仍报 10041 时可用「" + command(ctx,"device",["<device_id>","<device_fp>"]) + "」绑定自己常用客户端的信息。"
     ].join("\n"));
@@ -93,6 +107,7 @@ export async function handleAccount(ctx) {
       title("绝区零设备配置"),
       divider(),
       ...kv([["设备ID", maskDevice(existing.device_id)], ["设备指纹", maskDevice(existing.device_fp)]], { align: false }),
+      ...(existing.device_android?deviceRegistrationLines(existing):[]),
       divider(),
       "用法：" + command(ctx,"device",["<device_id>","[device_fp]"]),
       "Android 设备信息导入：" + command(ctx,"device",["<设备JSON>"]),
@@ -108,15 +123,16 @@ export async function handleAccount(ctx) {
       ctx.args=[info.device_id,info.device_fp];
     } else {
       let mobile;try{mobile=normalizeAndroidProfile(info);}catch(error){throw problem(error.message);}
-      const issued=await ctx.provider.issueDeviceFingerprint(existing.device_id || crypto.randomUUID(),{region:role.region,mobile});
+      const issued=await issue(existing.device_id || crypto.randomUUID(),mobile);
       saveIssued(issued);
-      await ctx.event.reply([title("Android 设备配置已更新"),"官方已签发设备指纹；这不代表已通过账号设备授权。",...kv([["设备ID",maskDevice(issued.device_id)],["设备指纹",maskDevice(issued.device_fp)]],{align:false}),command(ctx,"note")].join("\n"));
+      await ctx.event.reply([title("Android 设备配置已更新"),"官方已签发设备指纹；账号侧登记结果如下，业务查询仍须实际验证。",...kv([["设备ID",maskDevice(issued.device_id)],["设备指纹",maskDevice(issued.device_fp)]],{align:false}),...deviceRegistrationLines(issued),command(ctx,"note")].join("\n"));
       return;
     }
   }
   if (ctx.args.length > 2 || ctx.args.some(v=>!/^[a-zA-Z0-9._-]{1,128}$/.test(v))) throw problem("设备标识格式无效。用法：" + command(ctx,"device",["<device_id>","[device_fp]"]));
   // 合并而非替换：只改本次给出的字段，避免只补 device_id 时把已有指纹抹掉。
   const merged = { ...existing, device_id: ctx.args[0] };
+  delete merged.device_registration;delete merged.device_registration_id;
   if (ctx.args[1]) {merged.device_fp = ctx.args[1];merged.device_fp_source="manual";delete merged.device_fp_issued_at;}
   ctx.vault.saveCredential(role.providerId,role.accountKey,role.cookies,merged);
   const notes = [];
