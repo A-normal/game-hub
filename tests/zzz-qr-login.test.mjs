@@ -8,6 +8,7 @@ import { IdentityVault, InboundShaper, GameHubDispatcher, logger } from "../pack
 import { MihoyoCommunityProvider } from "../packages/provider/mihoyo/src/index.mjs";
 import { createLoginQrHandler } from "../packages/plugin/zzz/src/handlers/login-qr.mjs";
 import { ZZZPluginManifest } from "../packages/plugin/zzz/src/manifest.mjs";
+import { deliver as deliverNapcat } from "../packages/channel/napcat/src/files.mjs";
 
 const ACCOUNT = "10001";
 const USER = "qq-napcat:12345";
@@ -38,6 +39,7 @@ function harness(t, options = {}) {
   const vault = new IdentityVault();
   t.after(() => vault.close());
   const replies = [];
+  const deliveries = [];
   const requests = [];
   const logs = [];
   t.mock.method(logger, "info", (...args) => logs.push(args.join(" ")));
@@ -80,6 +82,7 @@ function harness(t, options = {}) {
     post_type: "message", message_type: "private", user_id: userId,
     message_id: crypto.randomUUID(), raw_message: text
   }, { sendFunction: async (target, message) => {
+    deliveries.push(message);
     replies.push(String(message));
     return options.reply ? options.reply(target, message) : { success: true, messageId: "reply-1" };
   } });
@@ -96,10 +99,30 @@ function harness(t, options = {}) {
     assert.equal(vault.foreignKeyCheck().length, 0);
     assert.ok(!replies.some(reply => reply.includes("登录成功") || reply.includes("绑定成功")));
   };
-  return { vault, replies, requests, logs, handler, fetchImpl, event, run, assertEmpty };
+  return { vault, replies, deliveries, requests, logs, handler, fetchImpl, event, run, assertEmpty };
 }
 
 test("ZZZ QR login: real event identity, credentials, transactions and lifecycle", async t => {
+  await t.test("QR delivery uses portable image segments and still encodes to a OneBot image", async t => {
+    const h = harness(t);
+    await h.run();
+    const qr = h.deliveries[0];
+    assert.ok(Array.isArray(qr?.segments), "QR must use portable image segments rather than CQ text");
+    assert.deepEqual(qr.segments.map(segment => segment.type), ["text", "image", "text"]);
+    assert.match(qr.segments[0].text, /米游社 App/);
+    assert.equal(qr.segments[1].file, "base64://test-png");
+    assert.match(qr.segments[2].text, /%取消扫码/);
+    assert.ok(!qr.segments.filter(segment => segment.type === "text").some(segment => /\[CQ:|base64:\/\//.test(segment.text)));
+    const calls = [];
+    const sent = await deliverNapcat({ callApi: async (ws, method, params) => {
+      calls.push({ method, params }); return { data: { message_id: 1 } };
+    } }, {}, { isGroup: false, userId: "12345" }, qr);
+    assert.equal(sent.success, true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "send_msg");
+    assert.deepEqual(calls[0].params.message.map(segment => segment.type), ["text", "image", "text"]);
+    assert.deepEqual(calls[0].params.message[1].data, { file: "base64://test-png" });
+  });
   await t.test("late QR completion cannot overwrite a concurrent device import or undo unbind",async t=>{
     for(const mutation of ["device","unbind"]) {
       let change=false;

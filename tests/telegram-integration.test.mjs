@@ -2,17 +2,81 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { IdentityVault, GameHubDispatcher, assembleModules } from "../packages/core/src/index.mjs";
+import { IdentityVault, GameHubDispatcher, assembleModules, logger } from "../packages/core/src/index.mjs";
 import { TelegramChannel, shapeUpdate } from "../packages/channel/telegram/src/index.mjs";
 import { createModule as createChat } from "../packages/plugin/chat-ai/src/index.mjs";
 import { ZZZPluginManifest } from "../packages/plugin/zzz/src/manifest.mjs";
 import { ZzzStore } from "../packages/plugin/zzz/src/storage.mjs";
+import { createLoginQrHandler } from "../packages/plugin/zzz/src/handlers/login-qr.mjs";
 
 const bot = { id: 100, is_bot: true, username: "GameHubBot", can_read_all_group_messages: true };
 let seq = 0;
 const message = (text, extra = {}) => ({ update_id: ++seq, message: { message_id: seq, date: 1700000000, from: { id: 7, first_name: "Test" }, chat: { id: 7, type: "private" }, text, ...extra } });
 const ok = result => Response.json({ ok: true, result });
 const pause = async check => { for (let i = 0; i < 200; i++) { if (check()) return; await new Promise(resolve => setTimeout(resolve, 1)); } assert.fail("integration completion timed out"); };
+
+test("ZZZ QR login sends a real Telegram PNG upload and only polls after successful image delivery", async t => {
+  for (const photoAccepted of [true, false]) await t.test(photoAccepted ? "PNG photo delivered" : "photo rejection ends login before polling", async t => {
+    const vault = new IdentityVault(), d = new GameHubDispatcher({ vault, env: {} });
+    const outbound = [], logs = [];
+    let clock = 0, loginPolls = 0, photoDelivered = false;
+    t.mock.method(logger, "info", (...args) => logs.push(args.join(" ")));
+    t.mock.method(logger, "warn", (...args) => logs.push(args.join(" ")));
+    const qrUrl = "https://example.com/gamehub-fixture-login?ticket=synthetic-qr-ticket";
+    const mihoyoFetch = async url => {
+      const result = data => Response.json({ retcode: 0, data });
+      if (url.includes("/device-fp/api/getFp")) return result({ code: 200, device_fp: "123456789abcd" });
+      if (url.includes("createQRLogin")) return result({ url: qrUrl, ticket: "synthetic-qr-ticket" });
+      if (url.includes("queryQRLoginStatus")) {
+        loginPolls++;
+        assert.equal(photoDelivered, true, "login polling must follow successful photo delivery");
+        return result({ status: "Expired" });
+      }
+      throw new Error("Unexpected mocked login request");
+    };
+    const handler = createLoginQrHandler({ fetchImpl: mihoyoFetch, now: () => clock, sleep: async ms => { clock += ms; } });
+    d.registerPlugin({ ...ZZZPluginManifest, routes: ZZZPluginManifest.routes.map(route => route.id === "loginQr" ? { ...route, action: handler } : route) });
+    d.setNamespace("zzz", { prefix: "%", aliases: ["zzz"] });
+    const fetchImpl = async (url, init) => {
+      const method = new URL(url).pathname.split("/").at(-1);
+      if (method === "getMe") return ok(bot);
+      if (method === "getWebhookInfo") return ok({ url: "" });
+      if (method === "getUpdates") return new Promise((resolve, reject) => init.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
+      outbound.push({ method, body: init.body });
+      if (method === "sendPhoto") {
+        if (!photoAccepted) return Response.json({ ok: false, error_code: 400 }, { status: 400 });
+        photoDelivered = true;
+      }
+      return ok({ message_id: 1000 + outbound.length });
+    };
+    const channel = new TelegramChannel({ config: { botApiToken: "100:fixture-token" }, dispatcher: d, vault, fetchImpl, pacing: false });
+    t.after(async () => { await channel.stop(); vault.close(); });
+    await channel.start();
+    const command = d.formatCommand({ pluginId: "zzz", routeId: "loginQr" });
+    const event = shapeUpdate(message(command), { bot, send: (target, content, options) => channel.send(target, content, options), readAttachment: async () => Buffer.alloc(0) });
+    assert.equal((await d.dispatch(event)).status, "HANDLED");
+    const photos = outbound.filter(item => item.method === "sendPhoto");
+    assert.equal(photos.length, 1, "QR must be uploaded as a photo, never split into Base64 text");
+    const photo = photos[0].body.get("photo");
+    assert.equal(photo.name, "image.png");
+    assert.equal(photos[0].body.get("chat_id"), "7");
+    assert.deepEqual(Buffer.from(await photo.arrayBuffer()).subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const text = outbound.filter(item => item.method === "sendMessage").map(item => JSON.parse(item.body).text);
+    assert.ok(text.every(value => !/\[CQ:|base64:\/\/|iVBORw0KGgo/.test(value)));
+    assert.ok(!logs.join("\n").includes("synthetic-qr-ticket"));
+    if (photoAccepted) {
+      assert.deepEqual(outbound.map(item => item.method), ["sendMessage", "sendPhoto", "sendMessage", "sendMessage"]);
+      assert.match(text[0], /米游社 App/);
+      assert.ok(text.some(value => value.includes(qrUrl) && value.includes("%取消扫码")));
+      assert.match(text.at(-1), /过期/);
+      assert.equal(loginPolls, 1);
+    } else {
+      assert.equal(loginPolls, 0);
+      assert.match(text.at(-1), /二维码发送失败/);
+    }
+    assert.equal(vault.getActiveRole("telegram:7", "zzz"), null);
+  });
+});
 
 test("Telegram Bot API → core registration → real AI card import → multipart file export", async t => {
   const vault = new IdentityVault();

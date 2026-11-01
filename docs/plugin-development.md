@@ -118,6 +118,8 @@ ZZZ插件不实现业务图片路由、截图渲染或视觉能力，也不在�
 
 标准事件可声明eventType=message/notice，通知经stage:event分发，不进入普通文本、观察器与AI兜底。noticeType、noticeSubtype和targetUserId保留平台适配后的语义。渠道声明能力并支持受约束segments（text/image）出站；平台API细节保留在channel，业务不得直接发送任意RPC。插件启停、任务持久化与取消仍遵守统一生命周期。
 
+二维码和表情图片统一通过 `event.reply({segments:[{type:"text",text:"说明"},{type:"image",file:图片引用}]})` 发送，图片引用为渠道支持的 HTTPS 地址或 `base64://` 数据。插件不要把 `[CQ:image,...]` 等平台编码拼进普通字符串；普通字符串在 Telegram 中按文本发送，图片段由各渠道转换为原生图片消息。
+
 文件与图片附件统一通过 `event.attachments` 暴露 `{id,name,size?,type,readBytes?}`。元数据接收本身不触发下载；插件验证权限、所属会话和大小后调用 `readBytes({maxBytes})`，下载前后均需核验工作流有效性。渠道返回有界字节，不把桥接容器的本地路径交给插件。图片消息仍兼容 `event.images`。
 
 通用文件出站为 `{text?,files:[{name,data:Buffer}]}`。渠道按平台能力先发送说明文字，再通过原生文件接口发送文件；QQ 不把文字与文件强塞进单条消息。交付结果可含 `partial`、`partsDelivered`、`messageIds`，部分成功不得当作完全失败而自动重放。NapCat 普通长文字按2500字拆分，文件最多4 MiB、单次最多五个。消息段仍为 text/image；人物模型只能选择已登记素材ID，不能构造文件上传或任意平台调用。

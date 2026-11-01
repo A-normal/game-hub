@@ -235,14 +235,18 @@ export function createLoginQrHandler({
       }
       const png = await encodeQr(url, { margin: 4, scale: 6 });
       assertCurrent(session);
-      const sent = await ctx.event.reply([
-        "📱 【绝区零 · 米哈游通行证扫码登录】",
-        "请使用手机【米游社 App】扫描下方二维码并确认：",
-        "[CQ:image,file=" + png + "]",
-        "• 直达链接: " + url,
-        "• 有效时间: 3 分钟",
-        "💡 发送「" + ctx.commands.format({ routeId: "loginCancel" }) + "」可取消本次登录"
-      ].join("\n"));
+      const sent = await ctx.event.reply({ segments: [
+        { type: "text", text: [
+          "📱 【绝区零 · 米哈游通行证扫码登录】",
+          "请使用手机【米游社 App】扫描下方二维码并确认："
+        ].join("\n") + "\n" },
+        { type: "image", file: png },
+        { type: "text", text: "\n" + [
+          "• 直达链接: " + url,
+          "• 有效时间: 3 分钟",
+          "💡 发送「" + ctx.commands.format({ routeId: "loginCancel" }) + "」可取消本次登录"
+        ].join("\n") }
+      ] });
       assertCurrent(session);
       if (sent?.success === false) throw new LoginError("二维码发送失败，登录已结束，请重新发起。");
 
